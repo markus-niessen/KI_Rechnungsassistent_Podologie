@@ -1,0 +1,1453 @@
+Project KI_Rechnungsassistent_Podologie {
+  database_type: 'SQLite'
+
+  Note: '''
+  ENGLISH
+  Project: AI-assisted invoicing application for a podology practice.
+
+  This database schema represents the MVP data model. It is intentionally compact
+  and designed so that a later migration from SQLite to PostgreSQL remains straightforward.
+
+  DEUTSCH
+  Projekt: KI-gestützter Rechnungsassistent für eine podologische Praxis.
+
+  Dieses Datenbankschema bildet das MVP-Datenmodell ab. Es ist bewusst kompakt gehalten
+  und so aufgebaut, dass ein späterer Wechsel von SQLite zu PostgreSQL möglichst einfach bleibt.
+  '''
+}
+
+Table companies {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the company or practice record.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für den Firmen- oder Praxisdatensatz.
+    '''
+  ]
+
+  name varchar(200) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Company / practice name
+
+    Official company or practice name shown on invoices, collective invoices and receipts.
+
+    DEUTSCH
+    Feld: Firmen- / Praxisname
+
+    Offizieller Firmen- oder Praxisname, der auf Rechnungen, Sammelrechnungen und Quittungen erscheint.
+    '''
+  ]
+
+  street varchar(200) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Street and house number
+
+    Street and house number of the company or practice address.
+
+    DEUTSCH
+    Feld: Straße und Hausnummer
+
+    Straße und Hausnummer der Firmen- oder Praxisanschrift.
+    '''
+  ]
+
+  zip varchar(20) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Postal code
+
+    Postal code of the company or practice address.
+
+    DEUTSCH
+    Feld: Postleitzahl
+
+    Postleitzahl der Firmen- oder Praxisanschrift.
+    '''
+  ]
+
+  city varchar(120) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: City
+
+    City of the company or practice address.
+
+    DEUTSCH
+    Feld: Ort
+
+    Ort der Firmen- oder Praxisanschrift.
+    '''
+  ]
+
+  phone varchar(50) [
+    note: '''
+    ENGLISH
+    Field: Phone number
+
+    Contact telephone number of the company or practice.
+
+    DEUTSCH
+    Feld: Telefonnummer
+
+    Kontakt-Telefonnummer der Firma oder Praxis.
+    '''
+  ]
+
+  email varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Email address
+
+    Contact email address of the company or practice.
+
+    DEUTSCH
+    Feld: E-Mail-Adresse
+
+    Kontakt-E-Mail-Adresse der Firma oder Praxis.
+    '''
+  ]
+
+  tax_number varchar(100) [
+    note: '''
+    ENGLISH
+    Field: Tax number
+
+    German tax number used on invoices where legally required.
+
+    DEUTSCH
+    Feld: Steuernummer
+
+    Deutsche Steuernummer, die auf Rechnungen angegeben wird, soweit dies rechtlich erforderlich ist.
+    '''
+  ]
+
+  vat_id varchar(100) [
+    note: '''
+    ENGLISH
+    Field: VAT identification number
+
+    VAT identification number if available or required.
+
+    DEUTSCH
+    Feld: Umsatzsteuer-Identifikationsnummer
+
+    Umsatzsteuer-Identifikationsnummer, falls vorhanden oder erforderlich.
+    '''
+  ]
+
+  iban varchar(34) [
+    note: '''
+    ENGLISH
+    Field: IBAN
+
+    Bank account IBAN used for invoice payments and the EPC payment QR code.
+
+    DEUTSCH
+    Feld: IBAN
+
+    IBAN des Bankkontos für Rechnungszahlungen und den EPC-Zahlungs-QR-Code.
+    '''
+  ]
+
+  bic varchar(20) [
+    note: '''
+    ENGLISH
+    Field: BIC
+
+    Bank Identifier Code used if required for payment information.
+
+    DEUTSCH
+    Feld: BIC
+
+    Bank Identifier Code, soweit dieser für Zahlungsinformationen benötigt wird.
+    '''
+  ]
+
+  bank_name varchar(150) [
+    note: '''
+    ENGLISH
+    Field: Bank name
+
+    Name of the bank shown in payment information.
+
+    DEUTSCH
+    Feld: Bankname
+
+    Name der Bank, der in den Zahlungsinformationen angezeigt wird.
+    '''
+  ]
+
+  logo_path varchar(500) [
+    note: '''
+    ENGLISH
+    Field: Logo file path
+
+    Local file path to the company or practice logo used in generated PDF documents.
+
+    DEUTSCH
+    Feld: Dateipfad zum Logo
+
+    Lokaler Dateipfad zum Firmen- oder Praxislogo, das in erzeugten PDF-Dokumenten verwendet wird.
+    '''
+  ]
+
+  active boolean [
+    not null,
+    default: true,
+    note: '''
+    ENGLISH
+    Field: Active status
+
+    Indicates whether this company or practice profile can currently be used.
+
+    DEUTSCH
+    Feld: Aktiv-Status
+
+    Kennzeichnet, ob dieses Firmen- oder Praxisprofil aktuell verwendet werden kann.
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when the record was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der der Datensatz erstellt wurde.
+    '''
+  ]
+
+  updated_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Updated at
+
+    Date and time of the most recent change to the record.
+
+    DEUTSCH
+    Feld: Zuletzt geändert am
+
+    Datum und Uhrzeit der letzten Änderung des Datensatzes.
+    '''
+  ]
+
+  Note: '''
+  ENGLISH
+  Table: companies
+  Meaning: Companies / Practice Data
+
+  Stores the invoicing entity and practice master data, including address,
+  tax information, bank details and an optional logo.
+
+  DEUTSCH
+  Tabelle: companies
+  Bedeutung: Firmen- / Praxisdaten
+
+  Speichert die Stammdaten des Rechnungsausstellers bzw. der Praxis,
+  einschließlich Anschrift, Steuerangaben, Bankverbindung und optionalem Logo.
+  '''
+}
+
+Table patients {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the patient record.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für den Patientendatensatz.
+    '''
+  ]
+
+  patient_nr varchar(30) [
+    not null,
+    unique,
+    note: '''
+    ENGLISH
+    Field: Patient number
+
+    Human-readable unique patient number, for example P-000124.
+
+    DEUTSCH
+    Feld: Patientennummer
+
+    Sichtbare eindeutige Patientennummer, zum Beispiel P-000124.
+    '''
+  ]
+
+  first_name varchar(120) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: First name
+
+    Patient's first name.
+
+    DEUTSCH
+    Feld: Vorname
+
+    Vorname des Patienten.
+    '''
+  ]
+
+  last_name varchar(120) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Last name
+
+    Patient's last name.
+
+    DEUTSCH
+    Feld: Nachname
+
+    Nachname des Patienten.
+    '''
+  ]
+
+  birth_date date [
+    note: '''
+    ENGLISH
+    Field: Date of birth
+
+    Patient's date of birth. Mainly used to distinguish patients with identical
+    or similar names.
+
+    DEUTSCH
+    Feld: Geburtsdatum
+
+    Geburtsdatum des Patienten. Dient vor allem zur eindeutigen Unterscheidung
+    von Patienten mit gleichen oder ähnlichen Namen.
+    '''
+  ]
+
+  street varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Residential street and house number
+
+    Street and house number of the patient's residential address.
+
+    DEUTSCH
+    Feld: Wohnadresse Straße und Hausnummer
+
+    Straße und Hausnummer der Wohnadresse des Patienten.
+    '''
+  ]
+
+  zip varchar(20) [
+    note: '''
+    ENGLISH
+    Field: Residential postal code
+
+    Postal code of the patient's residential address.
+
+    DEUTSCH
+    Feld: Wohnadresse Postleitzahl
+
+    Postleitzahl der Wohnadresse des Patienten.
+    '''
+  ]
+
+  city varchar(120) [
+    note: '''
+    ENGLISH
+    Field: Residential city
+
+    City of the patient's residential address.
+
+    DEUTSCH
+    Feld: Wohnadresse Ort
+
+    Ort der Wohnadresse des Patienten.
+    '''
+  ]
+
+  invoice_name varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Alternative invoice recipient
+
+    Optional different invoice recipient, for example a legal guardian
+    or another responsible recipient.
+
+    DEUTSCH
+    Feld: Abweichender Rechnungsempfänger
+
+    Optionaler abweichender Rechnungsempfänger, zum Beispiel ein Betreuer
+    oder ein anderer zuständiger Empfänger.
+    '''
+  ]
+
+  invoice_street varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Invoice recipient street and house number
+
+    Street and house number of the optional alternative invoice recipient.
+
+    DEUTSCH
+    Feld: Rechnungsadresse Straße und Hausnummer
+
+    Straße und Hausnummer des optional abweichenden Rechnungsempfängers.
+    '''
+  ]
+
+  invoice_zip varchar(20) [
+    note: '''
+    ENGLISH
+    Field: Invoice recipient postal code
+
+    Postal code of the optional alternative invoice recipient.
+
+    DEUTSCH
+    Feld: Rechnungsadresse Postleitzahl
+
+    Postleitzahl des optional abweichenden Rechnungsempfängers.
+    '''
+  ]
+
+  invoice_city varchar(120) [
+    note: '''
+    ENGLISH
+    Field: Invoice recipient city
+
+    City of the optional alternative invoice recipient.
+
+    DEUTSCH
+    Feld: Rechnungsadresse Ort
+
+    Ort des optional abweichenden Rechnungsempfängers.
+    '''
+  ]
+
+  home_name varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Nursing / residential home
+
+    Optional name of the nursing or residential home where the patient is treated.
+
+    DEUTSCH
+    Feld: Pflege- / Seniorenheim
+
+    Optionaler Name des Pflege- oder Seniorenheims, in dem der Patient behandelt wird.
+    '''
+  ]
+
+  room varchar(50) [
+    note: '''
+    ENGLISH
+    Field: Room
+
+    Optional room number or room designation in the nursing or residential home.
+
+    DEUTSCH
+    Feld: Zimmer
+
+    Optionale Zimmernummer oder Zimmerbezeichnung im Pflege- oder Seniorenheim.
+    '''
+  ]
+
+  active boolean [
+    not null,
+    default: true,
+    note: '''
+    ENGLISH
+    Field: Active status
+
+    Indicates whether the patient is currently active and selectable.
+
+    DEUTSCH
+    Feld: Aktiv-Status
+
+    Kennzeichnet, ob der Patient aktuell aktiv und auswählbar ist.
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when the patient record was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der der Patientendatensatz erstellt wurde.
+    '''
+  ]
+
+  updated_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Updated at
+
+    Date and time of the most recent change to the patient record.
+
+    DEUTSCH
+    Feld: Zuletzt geändert am
+
+    Datum und Uhrzeit der letzten Änderung des Patientendatensatzes.
+    '''
+  ]
+
+  indexes {
+    (last_name, first_name) [
+      name: 'idx_patients_name',
+      note: '''
+      ENGLISH
+      Index: Patient name search
+
+      Speeds up patient searches by last name and first name.
+
+      DEUTSCH
+      Index: Patientensuche nach Name
+
+      Beschleunigt die Patientensuche nach Nachname und Vorname.
+      '''
+    ]
+  }
+
+  Note: '''
+  ENGLISH
+  Table: patients
+  Meaning: Patients
+
+  Stores patient master data, an optional alternative invoice recipient
+  and minimal nursing-home information for clear patient selection.
+
+  DEUTSCH
+  Tabelle: patients
+  Bedeutung: Patienten
+
+  Speichert Patientenstammdaten, optional einen abweichenden Rechnungsempfänger
+  und minimale Heimangaben zur eindeutigen Patientenauswahl.
+  '''
+}
+
+Table services {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the service record.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für den Leistungsdatensatz.
+    '''
+  ]
+
+  code varchar(30) [
+    not null,
+    unique,
+    note: '''
+    ENGLISH
+    Field: Service code
+
+    Short unique service code, for example FPK, FPG or MA.
+
+    DEUTSCH
+    Feld: Leistungscode
+
+    Kurzer eindeutiger Leistungscode, zum Beispiel FPK, FPG oder MA.
+    '''
+  ]
+
+  name varchar(200) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Service name
+
+    Official service description used on invoices, collective invoices and receipts.
+
+    DEUTSCH
+    Feld: Leistungsbezeichnung
+
+    Offizielle Leistungsbezeichnung, die auf Rechnungen, Sammelrechnungen und Quittungen verwendet wird.
+    '''
+  ]
+
+  price decimal(10,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Unit price
+
+    Current standard unit price of the service.
+    This value must come from the database and must never be invented by the AI.
+
+    DEUTSCH
+    Feld: Einzelpreis
+
+    Aktueller Standard-Einzelpreis der Leistung.
+    Dieser Wert muss aus der Datenbank kommen und darf niemals von der KI erfunden werden.
+    '''
+  ]
+
+  vat_rate decimal(5,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: VAT rate
+
+    VAT rate assigned to the service, stored as a percentage.
+
+    DEUTSCH
+    Feld: Mehrwertsteuersatz
+
+    Der Leistung zugeordneter Mehrwertsteuersatz in Prozent.
+    '''
+  ]
+
+  active boolean [
+    not null,
+    default: true,
+    note: '''
+    ENGLISH
+    Field: Active status
+
+    Indicates whether the service can currently be selected for new document drafts.
+
+    DEUTSCH
+    Feld: Aktiv-Status
+
+    Kennzeichnet, ob die Leistung aktuell für neue Belegentwürfe auswählbar ist.
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when the service record was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der der Leistungsdatensatz erstellt wurde.
+    '''
+  ]
+
+  updated_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Updated at
+
+    Date and time of the most recent change to the service record.
+
+    DEUTSCH
+    Feld: Zuletzt geändert am
+
+    Datum und Uhrzeit der letzten Änderung des Leistungsdatensatzes.
+    '''
+  ]
+
+  Note: '''
+  ENGLISH
+  Table: services
+  Meaning: Services / Service Catalogue
+
+  Stores the official service catalogue, including service codes,
+  descriptions, prices and VAT rates. Invoice calculations use these database values.
+
+  DEUTSCH
+  Tabelle: services
+  Bedeutung: Leistungen / Leistungskatalog
+
+  Speichert den offiziellen Leistungskatalog mit Leistungscodes,
+  Bezeichnungen, Preisen und Mehrwertsteuersätzen.
+  Rechnungsberechnungen verwenden diese Datenbankwerte.
+  '''
+}
+
+Table invoices {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the document record.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für den Belegdatensatz.
+    '''
+  ]
+
+  company_id integer [
+    not null,
+    ref: > companies.id,
+    note: '''
+    ENGLISH
+    Field: Issuing company / practice
+
+    References the company or practice that issues this document.
+
+    DEUTSCH
+    Feld: Ausstellende Firma / Praxis
+
+    Verweist auf die Firma oder Praxis, die diesen Beleg ausstellt.
+    '''
+  ]
+
+  document_type varchar(30) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Document type
+
+    Allowed values:
+    INVOICE = invoice
+    COLLECTIVE_INVOICE = collective invoice
+    RECEIPT = receipt
+
+    DEUTSCH
+    Feld: Belegart
+
+    Erlaubte Werte:
+    INVOICE = Rechnung
+    COLLECTIVE_INVOICE = Sammelrechnung
+    RECEIPT = Quittung
+    '''
+  ]
+
+  status varchar(20) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Document status
+
+    Allowed values:
+    DRAFT = editable draft
+    FINAL = finalized document
+    CANCELLED = cancelled document
+
+    DEUTSCH
+    Feld: Belegstatus
+
+    Erlaubte Werte:
+    DRAFT = bearbeitbarer Entwurf
+    FINAL = finalisierter Beleg
+    CANCELLED = stornierter Beleg
+    '''
+  ]
+
+  invoice_number varchar(60) [
+    unique,
+    note: '''
+    ENGLISH
+    Field: Document number
+
+    Final unique document number.
+    Remains empty while the document is still a draft.
+
+    DEUTSCH
+    Feld: Belegnummer
+
+    Endgültige eindeutige Belegnummer.
+    Bleibt leer, solange der Beleg noch ein Entwurf ist.
+    '''
+  ]
+
+  invoice_date date [
+    note: '''
+    ENGLISH
+    Field: Invoice / document date
+
+    Official date of the invoice, collective invoice or receipt.
+
+    DEUTSCH
+    Feld: Rechnungs- / Belegdatum
+
+    Offizielles Datum der Rechnung, Sammelrechnung oder Quittung.
+    '''
+  ]
+
+  due_date date [
+    note: '''
+    ENGLISH
+    Field: Due date
+
+    Payment due date for invoices where applicable.
+
+    DEUTSCH
+    Feld: Fälligkeitsdatum
+
+    Zahlungsfälligkeitsdatum bei Rechnungen, sofern zutreffend.
+    '''
+  ]
+
+  invoice_recipient_snapshot varchar(250) [
+    note: '''
+    ENGLISH
+    Field: Invoice recipient snapshot
+
+    Frozen copy of the invoice recipient name at finalization.
+    Later changes to patient master data do not change old finalized documents.
+
+    DEUTSCH
+    Feld: Snapshot des Rechnungsempfängers
+
+    Eingefrorene Kopie des Rechnungsempfängers bei Finalisierung.
+    Spätere Änderungen an Patientenstammdaten verändern alte finalisierte Belege nicht.
+    '''
+  ]
+
+  invoice_street_snapshot varchar(200) [
+    note: '''
+    ENGLISH
+    Field: Invoice street snapshot
+
+    Frozen street and house number of the invoice recipient at finalization.
+
+    DEUTSCH
+    Feld: Snapshot Straße der Rechnungsadresse
+
+    Eingefrorene Straße und Hausnummer des Rechnungsempfängers bei Finalisierung.
+    '''
+  ]
+
+  invoice_zip_snapshot varchar(20) [
+    note: '''
+    ENGLISH
+    Field: Invoice postal code snapshot
+
+    Frozen postal code of the invoice recipient at finalization.
+
+    DEUTSCH
+    Feld: Snapshot Postleitzahl der Rechnungsadresse
+
+    Eingefrorene Postleitzahl des Rechnungsempfängers bei Finalisierung.
+    '''
+  ]
+
+  invoice_city_snapshot varchar(120) [
+    note: '''
+    ENGLISH
+    Field: Invoice city snapshot
+
+    Frozen city of the invoice recipient at finalization.
+
+    DEUTSCH
+    Feld: Snapshot Ort der Rechnungsadresse
+
+    Eingefrorener Ort des Rechnungsempfängers bei Finalisierung.
+    '''
+  ]
+
+  subtotal decimal(12,2) [
+    not null,
+    default: 0,
+    note: '''
+    ENGLISH
+    Field: Subtotal
+
+    Deterministically calculated subtotal before tax.
+
+    DEUTSCH
+    Feld: Zwischensumme
+
+    Deterministisch berechnete Zwischensumme vor Steuer.
+    '''
+  ]
+
+  tax_total decimal(12,2) [
+    not null,
+    default: 0,
+    note: '''
+    ENGLISH
+    Field: Total VAT
+
+    Deterministically calculated total VAT amount for the document.
+
+    DEUTSCH
+    Feld: Mehrwertsteuer gesamt
+
+    Deterministisch berechneter Gesamtbetrag der Mehrwertsteuer des Belegs.
+    '''
+  ]
+
+  total decimal(12,2) [
+    not null,
+    default: 0,
+    note: '''
+    ENGLISH
+    Field: Total amount
+
+    Final deterministically calculated total document amount.
+
+    DEUTSCH
+    Feld: Gesamtbetrag
+
+    Endgültiger deterministisch berechneter Gesamtbetrag des Belegs.
+    '''
+  ]
+
+  payment_status varchar(30) [
+    not null,
+    default: 'OPEN',
+    note: '''
+    ENGLISH
+    Field: Payment status
+
+    Allowed values:
+    OPEN = unpaid
+    PARTIAL = partially paid
+    PAID = fully paid
+
+    DEUTSCH
+    Feld: Zahlungsstatus
+
+    Erlaubte Werte:
+    OPEN = offen / unbezahlt
+    PARTIAL = teilweise bezahlt
+    PAID = vollständig bezahlt
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when the draft or document record was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der der Entwurf oder Belegdatensatz erstellt wurde.
+    '''
+  ]
+
+  updated_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Updated at
+
+    Date and time of the most recent permitted change to the document record.
+
+    DEUTSCH
+    Feld: Zuletzt geändert am
+
+    Datum und Uhrzeit der letzten zulässigen Änderung des Belegdatensatzes.
+    '''
+  ]
+
+  finalized_at datetime [
+    note: '''
+    ENGLISH
+    Field: Finalized at
+
+    Date and time when the document became FINAL and its business data was frozen.
+
+    DEUTSCH
+    Feld: Finalisiert am
+
+    Datum und Uhrzeit, zu der der Beleg den Status FINAL erhielt
+    und seine Geschäftsdaten eingefroren wurden.
+    '''
+  ]
+
+  indexes {
+    status [
+      name: 'idx_invoices_status',
+      note: '''
+      ENGLISH
+      Index: Document status
+
+      Speeds up filtering documents by status.
+
+      DEUTSCH
+      Index: Belegstatus
+
+      Beschleunigt das Filtern von Belegen nach Status.
+      '''
+    ]
+
+    document_type [
+      name: 'idx_invoices_document_type',
+      note: '''
+      ENGLISH
+      Index: Document type
+
+      Speeds up filtering documents by document type.
+
+      DEUTSCH
+      Index: Belegart
+
+      Beschleunigt das Filtern von Belegen nach Belegart.
+      '''
+    ]
+  }
+
+  Note: '''
+  ENGLISH
+  Table: invoices
+  Meaning: Invoices / Documents
+
+  Stores both draft and finalized document headers for invoices,
+  collective invoices and receipts. Finalized documents contain address snapshots
+  and calculated totals so historical documents remain unchanged.
+
+  DEUTSCH
+  Tabelle: invoices
+  Bedeutung: Rechnungen / Belege
+
+  Speichert sowohl Entwürfe als auch finalisierte Belegköpfe für Rechnungen,
+  Sammelrechnungen und Quittungen. Finalisierte Belege enthalten Adress-Snapshots
+  und berechnete Summen, damit historische Dokumente unverändert bleiben.
+  '''
+}
+
+Table invoice_items {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the document line item.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für die Belegposition.
+    '''
+  ]
+
+  invoice_id integer [
+    not null,
+    ref: > invoices.id,
+    note: '''
+    ENGLISH
+    Field: Related document
+
+    References the invoice, collective invoice or receipt containing this line item.
+
+    DEUTSCH
+    Feld: Zugehöriger Beleg
+
+    Verweist auf die Rechnung, Sammelrechnung oder Quittung,
+    zu der diese Position gehört.
+    '''
+  ]
+
+  patient_id integer [
+    ref: > patients.id,
+    note: '''
+    ENGLISH
+    Field: Related patient
+
+    References the current patient master record.
+    Historical information is additionally preserved in snapshot fields.
+
+    DEUTSCH
+    Feld: Zugehöriger Patient
+
+    Verweist auf den aktuellen Patientenstammdatensatz.
+    Historische Informationen werden zusätzlich in Snapshot-Feldern gesichert.
+    '''
+  ]
+
+  service_id integer [
+    ref: > services.id,
+    note: '''
+    ENGLISH
+    Field: Related service
+
+    References the current service catalogue entry.
+    Historical service data is additionally preserved in snapshot fields.
+
+    DEUTSCH
+    Feld: Zugehörige Leistung
+
+    Verweist auf den aktuellen Leistungskatalogeintrag.
+    Historische Leistungsdaten werden zusätzlich in Snapshot-Feldern gesichert.
+    '''
+  ]
+
+  patient_name_snapshot varchar(250) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Patient name snapshot
+
+    Frozen patient name stored for this line item at finalization.
+
+    DEUTSCH
+    Feld: Snapshot Patientenname
+
+    Eingefrorener Patientenname dieser Position bei Finalisierung.
+    '''
+  ]
+
+  service_name_snapshot varchar(250) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Service name snapshot
+
+    Frozen official service description used for this line item.
+
+    DEUTSCH
+    Feld: Snapshot Leistungsbezeichnung
+
+    Eingefrorene offizielle Leistungsbezeichnung dieser Position.
+    '''
+  ]
+
+  service_date date [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Service date
+
+    Date on which the service was provided.
+
+    DEUTSCH
+    Feld: Leistungsdatum
+
+    Datum, an dem die Leistung erbracht wurde.
+    '''
+  ]
+
+  quantity decimal(10,2) [
+    not null,
+    default: 1,
+    note: '''
+    ENGLISH
+    Field: Quantity
+
+    Quantity of the service on this line item.
+
+    DEUTSCH
+    Feld: Menge
+
+    Menge der Leistung in dieser Position.
+    '''
+  ]
+
+  unit_price decimal(12,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Unit price snapshot
+
+    Frozen unit price used for this line item.
+
+    DEUTSCH
+    Feld: Snapshot Einzelpreis
+
+    Eingefrorener Einzelpreis dieser Position.
+    '''
+  ]
+
+  vat_rate decimal(5,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: VAT rate snapshot
+
+    Frozen VAT rate used for this line item.
+
+    DEUTSCH
+    Feld: Snapshot Mehrwertsteuersatz
+
+    Eingefrorener Mehrwertsteuersatz dieser Position.
+    '''
+  ]
+
+  line_total decimal(12,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Line total
+
+    Deterministically calculated total amount for this line item.
+
+    DEUTSCH
+    Feld: Positionssumme
+
+    Deterministisch berechneter Gesamtbetrag dieser Position.
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when this document line item was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der diese Belegposition erstellt wurde.
+    '''
+  ]
+
+  indexes {
+    invoice_id [
+      name: 'idx_invoice_items_invoice',
+      note: '''
+      ENGLISH
+      Index: Document line lookup
+
+      Speeds up loading all line items belonging to one document.
+
+      DEUTSCH
+      Index: Suche nach Belegpositionen
+
+      Beschleunigt das Laden aller Positionen eines Belegs.
+      '''
+    ]
+
+    patient_id [
+      name: 'idx_invoice_items_patient',
+      note: '''
+      ENGLISH
+      Index: Patient line lookup
+
+      Speeds up finding document line items belonging to a patient.
+
+      DEUTSCH
+      Index: Suche nach Patientenpositionen
+
+      Beschleunigt das Finden von Belegpositionen eines Patienten.
+      '''
+    ]
+
+    service_id [
+      name: 'idx_invoice_items_service',
+      note: '''
+      ENGLISH
+      Index: Service line lookup
+
+      Speeds up finding document line items that reference a service.
+
+      DEUTSCH
+      Index: Suche nach Leistungspositionen
+
+      Beschleunigt das Finden von Belegpositionen, die auf eine Leistung verweisen.
+      '''
+    ]
+  }
+
+  Note: '''
+  ENGLISH
+  Table: invoice_items
+  Meaning: Invoice / Document Line Items
+
+  Stores the individual service lines of a document.
+  Each line can reference a patient and a service while historical values
+  such as patient name, service name, price and VAT rate are preserved.
+
+  DEUTSCH
+  Tabelle: invoice_items
+  Bedeutung: Rechnungs- / Belegpositionen
+
+  Speichert die einzelnen Leistungspositionen eines Belegs.
+  Jede Position kann auf einen Patienten und eine Leistung verweisen,
+  während historische Werte wie Patientenname, Leistungsname, Preis
+  und Mehrwertsteuersatz erhalten bleiben.
+  '''
+}
+
+Table payments {
+  id integer [
+    pk,
+    increment,
+    note: '''
+    ENGLISH
+    Field: Internal ID
+
+    Unique technical identifier for the payment record.
+
+    DEUTSCH
+    Feld: Interne ID
+
+    Eindeutige technische Kennung für den Zahlungseintrag.
+    '''
+  ]
+
+  invoice_id integer [
+    not null,
+    ref: > invoices.id,
+    note: '''
+    ENGLISH
+    Field: Related document
+
+    References the invoice or document to which this payment belongs.
+
+    DEUTSCH
+    Feld: Zugehöriger Beleg
+
+    Verweist auf die Rechnung bzw. den Beleg, zu dem diese Zahlung gehört.
+    '''
+  ]
+
+  amount decimal(12,2) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Payment amount
+
+    Amount received with this individual payment.
+    Multiple payment records allow partial payments.
+
+    DEUTSCH
+    Feld: Zahlungsbetrag
+
+    Betrag dieser einzelnen Zahlung.
+    Mehrere Zahlungseinträge ermöglichen Teilzahlungen.
+    '''
+  ]
+
+  payment_date date [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Payment date
+
+    Date on which the payment was received.
+
+    DEUTSCH
+    Feld: Zahlungsdatum
+
+    Datum, an dem die Zahlung eingegangen ist.
+    '''
+  ]
+
+  payment_method varchar(30) [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Payment method
+
+    Example values:
+    CASH = cash payment
+    BANK_TRANSFER = bank transfer
+    OTHER = other payment method
+
+    DEUTSCH
+    Feld: Zahlungsart
+
+    Beispielwerte:
+    CASH = Barzahlung
+    BANK_TRANSFER = Überweisung
+    OTHER = sonstige Zahlungsart
+    '''
+  ]
+
+  note text [
+    note: '''
+    ENGLISH
+    Field: Payment note
+
+    Optional free-text note about the payment,
+    for example a transfer reference or clarification.
+
+    DEUTSCH
+    Feld: Zahlungsnotiz
+
+    Optionale Freitextnotiz zur Zahlung,
+    zum Beispiel Verwendungszweck oder Erläuterung.
+    '''
+  ]
+
+  created_at datetime [
+    not null,
+    note: '''
+    ENGLISH
+    Field: Created at
+
+    Date and time when the payment record was created.
+
+    DEUTSCH
+    Feld: Erstellt am
+
+    Datum und Uhrzeit, zu der der Zahlungseintrag erstellt wurde.
+    '''
+  ]
+
+  indexes {
+    invoice_id [
+      name: 'idx_payments_invoice',
+      note: '''
+      ENGLISH
+      Index: Payment lookup by document
+
+      Speeds up loading all payments belonging to one document.
+
+      DEUTSCH
+      Index: Zahlungssuche nach Beleg
+
+      Beschleunigt das Laden aller Zahlungen zu einem Beleg.
+      '''
+    ]
+  }
+
+  Note: '''
+  ENGLISH
+  Table: payments
+  Meaning: Payments
+
+  Stores received payments separately from the immutable invoice content.
+  This supports full payments and multiple partial payments without changing
+  a finalized invoice.
+
+  DEUTSCH
+  Tabelle: payments
+  Bedeutung: Zahlungen
+
+  Speichert eingegangene Zahlungen getrennt vom unveränderlichen Rechnungsinhalt.
+  Dadurch sind vollständige Zahlungen und mehrere Teilzahlungen möglich,
+  ohne eine finalisierte Rechnung zu verändern.
+  '''
+}
