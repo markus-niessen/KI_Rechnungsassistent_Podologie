@@ -58,6 +58,25 @@ class Invoice(Base):
 
     patient: Mapped[Patient] = relationship(back_populates="invoices")
     payments: Mapped[list[Payment]] = relationship(back_populates="invoice")
+    invoice_items: Mapped[list[InvoiceItem]] = relationship(back_populates="invoice")
+
+
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    unit_net_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    vat_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    line_net: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    line_vat: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    line_gross: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    invoice: Mapped[Invoice] = relationship(back_populates="invoice_items")
+    service: Mapped[Service | None] = relationship()
 
 
 class Payment(Base):
