@@ -24,7 +24,7 @@ def _next_invoice_number(db: Session, invoice: Invoice) -> str:
     year = invoice.invoice_date.year
     year_start = date(year, 1, 1)
     next_year_start = date(year + 1, 1, 1)
-    prefix = f"{business_profile.location_code}-RE-{year}-"
+    prefix = f"{business_profile.invoice_prefix}-RE-{year}-"
     existing_numbers = db.scalars(
         select(Invoice.invoice_number).where(
             Invoice.business_profile_id == business_profile.id,

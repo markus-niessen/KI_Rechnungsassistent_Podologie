@@ -31,7 +31,7 @@ def client() -> Generator[TestClient, None, None]:
     Base.metadata.drop_all(engine)
 
 
-def profile_payload(location_code: str) -> dict[str, str]:
+def profile_payload(location_code: str | None) -> dict[str, str | None]:
     return {
         "business_name": "Podologie Beispiel",
         "location_name": f"Standort {location_code}",
@@ -43,7 +43,7 @@ def profile_payload(location_code: str) -> dict[str, str]:
     }
 
 
-def create_profile(client: TestClient, location_code: str) -> dict[str, object]:
+def create_profile(client: TestClient, location_code: str | None) -> dict[str, object]:
     response = client.post("/business-profiles", json=profile_payload(location_code))
     assert response.status_code == 201
     return response.json()
@@ -54,10 +54,11 @@ def test_business_profile_can_be_created(client: TestClient) -> None:
 
     assert profile["business_name"] == "Podologie Beispiel"
     assert profile["location_code"] == "NORD"
+    assert profile["invoice_prefix"] == "NORD"
     assert profile["active"] is True
 
 
-@pytest.mark.parametrize("field", ["business_name", "location_name", "location_code", "iban"])
+@pytest.mark.parametrize("field", ["business_name", "location_name", "iban"])
 def test_required_business_profile_fields_are_validated(client: TestClient, field: str) -> None:
     payload = profile_payload("NORD")
     payload[field] = "   "
@@ -78,7 +79,7 @@ def test_missing_required_business_profile_field_is_rejected(client: TestClient)
 
 def test_additional_create_field_is_rejected(client: TestClient) -> None:
     payload = profile_payload("NORD")
-    payload["unexpected"] = "value"
+    payload["invoice_prefix"] = "client-defined"
 
     response = client.post("/business-profiles", json=payload)
 
@@ -146,15 +147,47 @@ def test_deactivated_business_profile_is_hidden_unless_requested(client: TestCli
     ]
 
 
-def test_duplicate_location_code_is_rejected(client: TestClient) -> None:
-    first_profile = create_profile(client, "NORD")
-    second_profile = create_profile(client, "SUED")
+def test_shared_location_codes_receive_stable_non_reused_invoice_prefixes(client: TestClient) -> None:
+    first_profile = create_profile(client, "EU")
+    second_profile = create_profile(client, "EU")
+    third_profile = create_profile(client, "EU")
 
-    duplicate_response = client.post("/business-profiles", json=profile_payload("NORD"))
+    assert first_profile["invoice_prefix"] == "EU"
+    assert second_profile["invoice_prefix"] == "EU-2"
+    assert third_profile["invoice_prefix"] == "EU-3"
+
+    deactivate_response = client.post(f"/business-profiles/{second_profile['id']}/deactivate")
+    fourth_profile = create_profile(client, "EU")
     update_response = client.patch(
-        f"/business-profiles/{second_profile['id']}",
-        json={"location_code": first_profile["location_code"]},
+        f"/business-profiles/{first_profile['id']}",
+        json={
+            "business_name": "Umbenannte Podologie",
+            "street": "Andere Straße 5",
+            "location_code": "FR",
+        },
     )
 
-    assert duplicate_response.status_code == 409
-    assert update_response.status_code == 409
+    assert deactivate_response.json()["invoice_prefix"] == "EU-2"
+    assert fourth_profile["invoice_prefix"] == "EU-4"
+    assert update_response.json()["invoice_prefix"] == "EU"
+    assert update_response.json()["location_code"] == "FR"
+
+
+def test_profile_without_location_code_uses_its_id_as_invoice_prefix(client: TestClient) -> None:
+    payload = profile_payload(None)
+    del payload["location_code"]
+
+    response = client.post("/business-profiles", json=payload)
+
+    assert response.status_code == 201
+    profile = response.json()
+    assert profile["location_code"] is None
+    assert profile["invoice_prefix"] == str(profile["id"])
+
+
+def test_invoice_prefix_cannot_be_changed_via_patch(client: TestClient) -> None:
+    profile = create_profile(client, "EU")
+
+    response = client.patch(f"/business-profiles/{profile['id']}", json={"invoice_prefix": "other"})
+
+    assert response.status_code == 422

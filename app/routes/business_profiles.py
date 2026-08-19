@@ -1,6 +1,8 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from uuid import uuid4
+
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,24 +23,45 @@ def _get_business_profile_or_404(db: Session, business_profile_id: int) -> Busin
     return business_profile
 
 
-def _commit_or_location_code_conflict(db: Session) -> None:
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Location code already exists",
-        ) from None
+def _next_invoice_prefix(db: Session, business_profile: BusinessProfile) -> str:
+    if business_profile.location_code is None:
+        if business_profile.id is None:
+            raise ValueError("Business profile must be saved before assigning its invoice prefix.")
+        return str(business_profile.id)
+
+    location_code = business_profile.location_code
+    existing_prefixes = set(db.scalars(select(BusinessProfile.invoice_prefix)))
+    if location_code not in existing_prefixes:
+        return location_code
+
+    used_suffixes = [
+        int(prefix.removeprefix(f"{location_code}-"))
+        for prefix in existing_prefixes
+        if prefix.startswith(f"{location_code}-") and prefix.removeprefix(f"{location_code}-").isdigit()
+    ]
+    return f"{location_code}-{max(used_suffixes, default=1) + 1}"
 
 
 @router.post("", response_model=BusinessProfileRead, status_code=status.HTTP_201_CREATED)
 def create_business_profile(profile_data: BusinessProfileCreate, db: DatabaseSession) -> BusinessProfile:
-    business_profile = BusinessProfile(**profile_data.model_dump(), active=True)
-    db.add(business_profile)
-    _commit_or_location_code_conflict(db)
-    db.refresh(business_profile)
-    return business_profile
+    for _ in range(5):
+        business_profile = BusinessProfile(
+            **profile_data.model_dump(),
+            invoice_prefix=f"__pending__{uuid4().hex}",
+            active=True,
+        )
+        db.add(business_profile)
+        try:
+            db.flush()
+            business_profile.invoice_prefix = _next_invoice_prefix(db, business_profile)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            continue
+        db.refresh(business_profile)
+        return business_profile
+
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Could not allocate a unique invoice prefix")
 
 
 @router.get("", response_model=list[BusinessProfileRead])
@@ -77,7 +100,7 @@ def update_business_profile(
     business_profile = _get_business_profile_or_404(db, business_profile_id)
     for field, value in profile_data.model_dump(exclude_unset=True).items():
         setattr(business_profile, field, value)
-    _commit_or_location_code_conflict(db)
+    db.commit()
     db.refresh(business_profile)
     return business_profile
 
@@ -86,6 +109,6 @@ def update_business_profile(
 def deactivate_business_profile(business_profile_id: int, db: DatabaseSession) -> BusinessProfile:
     business_profile = _get_business_profile_or_404(db, business_profile_id)
     business_profile.active = False
-    _commit_or_location_code_conflict(db)
+    db.commit()
     db.refresh(business_profile)
     return business_profile

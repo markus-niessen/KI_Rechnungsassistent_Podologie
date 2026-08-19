@@ -48,11 +48,12 @@ def test_calculate_invoice_totals_from_multiple_items() -> None:
     assert invoice.total_gross == Decimal("90.44")
 
 
-def create_business_profile(location_code: str) -> BusinessProfile:
+def create_business_profile(location_code: str, invoice_prefix: str | None = None) -> BusinessProfile:
     return BusinessProfile(
         business_name="Podologie Beispiel",
         location_name=f"Standort {location_code}",
         location_code=location_code,
+        invoice_prefix=invoice_prefix or location_code,
         street="Musterstraße 1",
         postal_code="50667",
         city="Köln",
@@ -147,3 +148,27 @@ def test_confirm_invoices_with_location_and_year_sequences() -> None:
             confirm_invoice(session, eu_first_invoice)
         with pytest.raises(ValueError):
             calculate_invoice_totals(eu_first_invoice)
+
+
+def test_same_location_code_profiles_have_separate_invoice_number_prefixes() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        invoice_date = date.today()
+        eu_profile = create_business_profile("EU", "EU")
+        eu_second_profile = create_business_profile("EU", "EU-2")
+        eu_invoice = create_draft_invoice("P-0008", invoice_date, eu_profile)
+        eu_second_invoice = create_draft_invoice("P-0009", invoice_date, eu_second_profile)
+        session.add_all([eu_profile, eu_second_profile, eu_invoice, eu_second_invoice])
+        session.commit()
+
+        confirm_invoice(session, eu_invoice)
+        session.commit()
+        confirm_invoice(session, eu_second_invoice)
+        session.commit()
+
+        year = invoice_date.year
+        assert eu_invoice.invoice_number == f"EU-RE-{year}-000001"
+        assert eu_second_invoice.invoice_number == f"EU-2-RE-{year}-000001"
+        assert eu_invoice.invoice_number != eu_second_invoice.invoice_number

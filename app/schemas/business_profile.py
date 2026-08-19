@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class BusinessProfileCreate(BaseModel):
     business_name: str
     location_name: str
-    location_code: str
+    location_code: str | None = None
     street: str
     postal_code: str
     city: str
@@ -21,13 +21,21 @@ class BusinessProfileCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("business_name", "location_name", "location_code", "iban")
+    @field_validator("business_name", "location_name", "iban")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("Field must not be empty.")
         return value
+
+    @field_validator("location_code", mode="before")
+    @classmethod
+    def normalize_location_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class BusinessProfileUpdate(BaseModel):
@@ -48,7 +56,7 @@ class BusinessProfileUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("business_name", "location_name", "location_code", "iban")
+    @field_validator("business_name", "location_name", "iban")
     @classmethod
     def validate_required_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -58,12 +66,21 @@ class BusinessProfileUpdate(BaseModel):
             raise ValueError("Field must not be empty.")
         return value
 
+    @field_validator("location_code", mode="before")
+    @classmethod
+    def normalize_location_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
 
 class BusinessProfileRead(BaseModel):
     id: int
     business_name: str
     location_name: str
-    location_code: str
+    location_code: str | None
+    invoice_prefix: str
     street: str
     postal_code: str
     city: str
