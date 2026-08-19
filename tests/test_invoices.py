@@ -98,6 +98,20 @@ def create_invoice(client: TestClient, company_id: int) -> dict[str, object]:
     return response.json()
 
 
+def create_collective_invoice(client: TestClient, company_id: int) -> dict[str, object]:
+    response = client.post(
+        "/invoices",
+        json={
+            "company_id": company_id,
+            "document_type": "COLLECTIVE_INVOICE",
+            "invoice_date": "2026-08-19",
+            "due_date": "2026-09-02",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
 def test_invoice_draft_crud_list_and_company_validation(client: TestClient) -> None:
     business_profile = create_business_profile(client)
     invoice = create_invoice(client, business_profile["id"])
@@ -378,6 +392,75 @@ def test_invoice_pdf_rejects_missing_iban_without_changing_final_invoice(client:
     assert pdf_response.status_code == 422
     assert stored_invoice["invoice_number"] == finalized["invoice_number"]
     assert stored_invoice["total"] == finalized["total"]
+
+
+def test_collective_invoice_finalization_pdf_and_write_protection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(invoice_pdf, "INVOICE_PDF_DIRECTORY", tmp_path)
+    business_profile = create_business_profile(client)
+    first_service = create_service(client)
+    second_service_response = client.post(
+        "/services",
+        json={"name": "Podologische Zusatzleistung", "net_price": "10.00", "vat_rate": "7.00"},
+    )
+    common_recipient = {
+        "invoice_name": "Pflegeheim Muster",
+        "invoice_street": "Rechnungsweg 1",
+        "invoice_zip": "50667",
+        "invoice_city": "Köln",
+    }
+    first_patient_response = client.post(
+        "/patients", json={"first_name": "Anna", "last_name": "Beispiel", **common_recipient}
+    )
+    second_patient_response = client.post(
+        "/patients", json={"first_name": "Bernd", "last_name": "Beispiel", **common_recipient}
+    )
+    collective_invoice = create_collective_invoice(client, business_profile["id"])
+    draft_pdf_response = client.get(f"/invoices/{collective_invoice['id']}/pdf")
+    first_item_response = client.post(
+        f"/invoices/{collective_invoice['id']}/items",
+        json={"service_id": first_service["id"], "patient_id": first_patient_response.json()["id"], "quantity": "2.00"},
+    )
+    second_item_response = client.post(
+        f"/invoices/{collective_invoice['id']}/items",
+        json={"service_id": second_service_response.json()["id"], "patient_id": second_patient_response.json()["id"]},
+    )
+    draft = client.get(f"/invoices/{collective_invoice['id']}").json()
+    finalized_response = client.post(f"/invoices/{collective_invoice['id']}/finalize")
+    pdf_response = client.get(f"/invoices/{collective_invoice['id']}/pdf")
+
+    assert draft_pdf_response.status_code == 409
+    assert first_item_response.status_code == 201
+    assert second_item_response.status_code == 201
+    assert draft["status"] == "DRAFT"
+    assert [item["patient_name_snapshot"] for item in draft["items"]] == ["Anna Beispiel", "Bernd Beispiel"]
+    assert Decimal(str(draft["subtotal"])) == Decimal("86.00")
+    assert Decimal(str(draft["tax_total"])) == Decimal("15.14")
+    assert Decimal(str(draft["total"])) == Decimal("101.14")
+    assert finalized_response.status_code == 200
+    finalized = finalized_response.json()
+    assert finalized["status"] == "FINAL"
+    assert finalized["invoice_number"] == "TEST-RE-2026-000001"
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
+    assert pdf_response.content.startswith(b"%PDF")
+    assert len(pdf_response.content) > 500
+    assert (tmp_path / "TEST-RE-2026-000001.pdf").is_file()
+    assert client.patch(
+        f"/invoices/{collective_invoice['id']}", json={"due_date": "2026-09-10"}
+    ).status_code == 409
+    assert client.post(
+        f"/invoices/{collective_invoice['id']}/items",
+        json={"service_id": first_service["id"], "patient_id": first_patient_response.json()["id"]},
+    ).status_code == 409
+    assert client.patch(
+        f"/invoices/{collective_invoice['id']}/items/{first_item_response.json()['items'][0]['id']}",
+        json={"quantity": "1.00"},
+    ).status_code == 409
+    assert client.delete(
+        f"/invoices/{collective_invoice['id']}/items/{second_item_response.json()['items'][1]['id']}"
+    ).status_code == 409
 
 
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:

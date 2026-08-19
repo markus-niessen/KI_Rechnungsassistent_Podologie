@@ -104,6 +104,45 @@ def _has_complete_invoice_address(patient: Patient) -> bool:
     return all(_has_text(value) for value in (patient.street, patient.zip, patient.city))
 
 
+def _alternative_invoice_recipient(patient: Patient) -> tuple[str, str, str, str] | None:
+    recipient = (
+        patient.invoice_name,
+        patient.invoice_street,
+        patient.invoice_zip,
+        patient.invoice_city,
+    )
+    if not all(_has_text(value) for value in recipient):
+        return None
+    return (
+        str(patient.invoice_name),
+        str(patient.invoice_street),
+        str(patient.invoice_zip),
+        str(patient.invoice_city),
+    )
+
+
+def _get_collective_invoice_recipient_or_error(db: Session, invoice: Invoice) -> Patient:
+    if any(item.patient_id is None or not _has_text(item.patient_name_snapshot) for item in invoice.invoice_items):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Every collective invoice item requires a patient and patient snapshot",
+        )
+
+    patients = [db.get(Patient, item.patient_id) for item in invoice.invoice_items]
+    if any(patient is None for patient in patients):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Every collective invoice item requires a valid patient",
+        )
+    recipients = {_alternative_invoice_recipient(patient) for patient in patients if patient is not None}
+    if None in recipients or len(recipients) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Collective invoice patients require one shared complete invoice address",
+        )
+    return next(patient for patient in patients if patient is not None)
+
+
 def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
     if not invoice.invoice_items:
         raise HTTPException(
@@ -138,6 +177,9 @@ def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
                 detail="Every invoice item requires complete service snapshots",
             )
 
+    if invoice.document_type == "COLLECTIVE_INVOICE":
+        _get_collective_invoice_recipient_or_error(db, invoice)
+        return
     if invoice.document_type != "INVOICE":
         return
 
@@ -159,6 +201,8 @@ def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
 
 
 def _get_pdf_recipient_or_error(db: Session, invoice: Invoice) -> Patient:
+    if invoice.document_type == "COLLECTIVE_INVOICE":
+        return _get_collective_invoice_recipient_or_error(db, invoice)
     if invoice.document_type != "INVOICE":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

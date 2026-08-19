@@ -69,7 +69,7 @@ def render_invoice_pdf(
         rightMargin=20 * mm,
         topMargin=18 * mm,
         bottomMargin=18 * mm,
-        title=f"Rechnung {invoice.invoice_number}",
+        title=f"{'Sammelrechnung' if invoice.document_type == 'COLLECTIVE_INVOICE' else 'Rechnung'} {invoice.invoice_number}",
         author=business_profile.business_name,
     )
     styles = getSampleStyleSheet()
@@ -97,7 +97,8 @@ def render_invoice_pdf(
     if business_profile.ik_number:
         sender_lines.append(f"IK-Nummer: {business_profile.ik_number}")
 
-    story = [Paragraph("Rechnung", styles["Title"]), Spacer(1, 7 * mm)]
+    heading = "Sammelrechnung" if invoice.document_type == "COLLECTIVE_INVOICE" else "Rechnung"
+    story = [Paragraph(heading, styles["Title"]), Spacer(1, 7 * mm)]
     address_table = Table(
         [
             [
@@ -133,22 +134,34 @@ def render_invoice_pdf(
     )
     story.extend([details, Spacer(1, 8 * mm)])
 
-    position_rows = [["Leistung", "Menge", "Einzelpreis", "MwSt.", "Gesamtpreis"]]
-    for item in invoice.invoice_items:
-        position_rows.append(
-            [
-                Paragraph(escape(item.service_name_snapshot or item.description), styles["BodyText"]),
-                _format_quantity(item.quantity),
-                _format_money(item.unit_net_price),
-                f"{item.vat_rate:.2f} %".replace(".", ","),
-                _format_money(item.line_gross),
-            ]
-        )
-    positions = Table(
-        position_rows,
-        colWidths=[66 * mm, 20 * mm, 29 * mm, 20 * mm, 29 * mm],
-        repeatRows=1,
-    )
+    if invoice.document_type == "COLLECTIVE_INVOICE":
+        position_rows = [["Patient", "Leistung", "Menge", "Einzelpreis", "MwSt.", "Gesamtpreis"]]
+        for item in invoice.invoice_items:
+            position_rows.append(
+                [
+                    Paragraph(escape(item.patient_name_snapshot or ""), styles["BodyText"]),
+                    Paragraph(escape(item.service_name_snapshot or item.description), styles["BodyText"]),
+                    _format_quantity(item.quantity),
+                    _format_money(item.unit_net_price),
+                    f"{item.vat_rate:.2f} %".replace(".", ","),
+                    _format_money(item.line_gross),
+                ]
+            )
+        position_widths = [37 * mm, 44 * mm, 17 * mm, 24 * mm, 17 * mm, 24 * mm]
+    else:
+        position_rows = [["Leistung", "Menge", "Einzelpreis", "MwSt.", "Gesamtpreis"]]
+        for item in invoice.invoice_items:
+            position_rows.append(
+                [
+                    Paragraph(escape(item.service_name_snapshot or item.description), styles["BodyText"]),
+                    _format_quantity(item.quantity),
+                    _format_money(item.unit_net_price),
+                    f"{item.vat_rate:.2f} %".replace(".", ","),
+                    _format_money(item.line_gross),
+                ]
+            )
+        position_widths = [66 * mm, 20 * mm, 29 * mm, 20 * mm, 29 * mm]
+    positions = Table(position_rows, colWidths=position_widths, repeatRows=1)
     positions.setStyle(
         TableStyle(
             [
