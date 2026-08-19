@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pypdf import PdfReader
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -461,6 +462,67 @@ def test_collective_invoice_finalization_pdf_and_write_protection(
     assert client.delete(
         f"/invoices/{collective_invoice['id']}/items/{second_item_response.json()['items'][1]['id']}"
     ).status_code == 409
+
+
+def test_large_collective_invoice_pdf_spans_pages_with_repeated_table_header(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(invoice_pdf, "INVOICE_PDF_DIRECTORY", tmp_path)
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    common_recipient = {
+        "invoice_name": "Pflegeheim Muster",
+        "invoice_street": "Rechnungsweg 1",
+        "invoice_zip": "50667",
+        "invoice_city": "Köln",
+    }
+    first_patient = client.post(
+        "/patients",
+        json={
+            "first_name": "Alexandra-Maria",
+            "last_name": "Beispielname mit längerem Zusatz",
+            **common_recipient,
+        },
+    ).json()
+    second_patient = client.post(
+        "/patients",
+        json={
+            "first_name": "Bernhard-Theodor",
+            "last_name": "Weiterer Beispielname mit längerem Zusatz",
+            **common_recipient,
+        },
+    ).json()
+    invoice = create_collective_invoice(client, business_profile["id"])
+
+    for index in range(30):
+        response = client.post(
+            f"/invoices/{invoice['id']}/items",
+            json={
+                "service_id": service["id"],
+                "patient_id": (first_patient if index % 2 == 0 else second_patient)["id"],
+                "quantity": "1.00",
+            },
+        )
+        assert response.status_code == 201
+
+    finalized = client.post(f"/invoices/{invoice['id']}/finalize").json()
+    pdf_response = client.get(f"/invoices/{invoice['id']}/pdf")
+    stored = client.get(f"/invoices/{invoice['id']}").json()
+    reader = PdfReader(tmp_path / "TEST-RE-2026-000001.pdf")
+    page_texts = [page.extract_text() or "" for page in reader.pages]
+
+    assert finalized["status"] == "FINAL"
+    assert pdf_response.status_code == 200
+    assert pdf_response.content.startswith(b"%PDF")
+    assert len(reader.pages) > 1
+    assert "Patient" in page_texts[1]
+    assert "Leistung" in page_texts[1]
+    assert "Sammelrechnung TEST-RE-2026-000001" in page_texts[1]
+    assert "Seite 2" in page_texts[1]
+    assert Decimal(str(stored["subtotal"])) == Decimal("1140.00")
+    assert Decimal(str(stored["tax_total"])) == Decimal("216.60")
+    assert Decimal(str(stored["total"])) == Decimal("1356.60")
+    assert stored["invoice_number"] == finalized["invoice_number"]
 
 
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:

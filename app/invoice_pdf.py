@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image as PdfImage
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.db.models import BusinessProfile, Invoice, Patient
 from app.girocode import build_epc_girocode_payload, create_girocode_qr_image
@@ -50,6 +50,17 @@ def _recipient_lines(patient: Patient) -> list[str]:
 
 def _safe_filename(invoice_number: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", invoice_number) + ".pdf"
+
+
+def _draw_page_header(canvas: object, document: object, business_name: str, heading: str, invoice_number: str) -> None:
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.HexColor("#374151"))
+    canvas.drawString(document.leftMargin, A4[1] - 11 * mm, f"{business_name} | {heading} {invoice_number}")
+    canvas.drawRightString(A4[0] - document.rightMargin, A4[1] - 11 * mm, f"Seite {canvas.getPageNumber()}")
+    canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
+    canvas.line(document.leftMargin, A4[1] - 13 * mm, A4[0] - document.rightMargin, A4[1] - 13 * mm)
+    canvas.restoreState()
 
 
 def render_invoice_pdf(
@@ -200,8 +211,6 @@ def render_invoice_pdf(
             ]
         )
     )
-    story.extend([totals, Spacer(1, 10 * mm)])
-
     payment_lines = ["<b>Zahlungsinformationen</b>"]
     if business_profile.bank_name:
         payment_lines.append(escape(business_profile.bank_name))
@@ -220,7 +229,10 @@ def render_invoice_pdf(
         colWidths=[120 * mm, 40 * mm],
     )
     payment_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story.append(payment_table)
+    story.append(KeepTogether([totals, Spacer(1, 10 * mm), payment_table]))
 
-    document.build(story)
+    page_header = lambda canvas, doc: _draw_page_header(
+        canvas, doc, business_profile.business_name, heading, invoice.invoice_number
+    )
+    document.build(story, onFirstPage=page_header, onLaterPages=page_header)
     return output_path
