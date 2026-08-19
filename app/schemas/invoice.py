@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 DocumentType = Literal["INVOICE", "COLLECTIVE_INVOICE", "RECEIPT"]
@@ -59,6 +59,16 @@ class InvoiceItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class InvoiceBusinessProfileRead(BaseModel):
+    id: int
+    business_name: str
+    location_name: str
+    location_code: str | None
+    invoice_prefix: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class InvoiceRead(BaseModel):
     id: int
     company_id: int = Field(validation_alias="business_profile_id")
@@ -71,6 +81,12 @@ class InvoiceRead(BaseModel):
     tax_total: Decimal = Field(validation_alias="total_vat")
     total: Decimal = Field(validation_alias="total_gross")
     created_at: datetime
+    company: InvoiceBusinessProfileRead | None = Field(validation_alias="business_profile")
     items: list[InvoiceItemRead] = Field(validation_alias="invoice_items")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field
+    @property
+    def item_count(self) -> int:
+        return len(self.items)

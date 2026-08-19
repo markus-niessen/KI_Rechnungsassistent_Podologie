@@ -147,6 +147,65 @@ def test_invoice_items_snapshot_and_recalculate_totals(client: TestClient) -> No
     assert Decimal(str(client.get(f"/invoices/{invoice['id']}").json()["total"])) == Decimal("0.00")
 
 
+def test_invoice_draft_preview_contains_company_items_and_totals(client: TestClient) -> None:
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    patient = create_patient(client)
+    invoice = create_invoice(client, business_profile["id"])
+
+    client.post(
+        f"/invoices/{invoice['id']}/items",
+        json={"service_id": service["id"], "patient_id": patient["id"], "quantity": "2.00"},
+    )
+    preview_response = client.get(f"/invoices/{invoice['id']}")
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["company"] == {
+        "id": business_profile["id"],
+        "business_name": "Podologie Testpraxis",
+        "location_name": "Köln",
+        "location_code": "TEST",
+        "invoice_prefix": "TEST",
+    }
+    assert preview["item_count"] == 1
+    assert preview["items"][0]["patient_name_snapshot"] == "Anna Beispiel"
+    assert preview["items"][0]["service_name_snapshot"] == "Podologische Behandlung"
+    assert Decimal(str(preview["subtotal"])) == Decimal("76.00")
+    assert Decimal(str(preview["tax_total"])) == Decimal("14.44")
+    assert Decimal(str(preview["total"])) == Decimal("90.44")
+
+
+def test_invoice_worklist_filters_drafts_and_keeps_drafts_independent(client: TestClient) -> None:
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    first_draft = create_invoice(client, business_profile["id"])
+    second_draft = create_invoice(client, business_profile["id"])
+
+    first_item_response = client.post(
+        f"/invoices/{first_draft['id']}/items",
+        json={"service_id": service["id"], "quantity": "2.00"},
+    )
+    first_item_id = first_item_response.json()["items"][0]["id"]
+    client.patch(
+        f"/invoices/{first_draft['id']}/items/{first_item_id}",
+        json={"quantity": "3.00"},
+    )
+    client.patch(f"/invoices/{first_draft['id']}", json={"due_date": "2026-09-10"})
+
+    worklist_response = client.get("/invoices?status=DRAFT")
+
+    assert worklist_response.status_code == 200
+    worklist = worklist_response.json()
+    assert [entry["id"] for entry in worklist] == [first_draft["id"], second_draft["id"]]
+    assert worklist[0]["item_count"] == 1
+    assert Decimal(str(worklist[0]["total"])) == Decimal("135.66")
+    assert worklist[0]["due_date"] == "2026-09-10"
+    assert worklist[1]["item_count"] == 0
+    assert Decimal(str(worklist[1]["total"])) == Decimal("0.00")
+    assert worklist[1]["due_date"] == "2026-09-02"
+
+
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:
     business_profile = create_business_profile(client)
     service = create_service(client)

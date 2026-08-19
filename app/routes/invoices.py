@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -22,7 +22,10 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 
 
 def _invoice_statement():
-    return select(Invoice).options(selectinload(Invoice.invoice_items))
+    return select(Invoice).options(
+        selectinload(Invoice.business_profile),
+        selectinload(Invoice.invoice_items),
+    )
 
 
 def _get_invoice_or_404(db: Session, invoice_id: int) -> Invoice:
@@ -102,8 +105,14 @@ def create_invoice(invoice_data: InvoiceCreate, db: DatabaseSession) -> Invoice:
 
 
 @router.get("", response_model=list[InvoiceRead])
-def list_invoices(db: DatabaseSession) -> list[Invoice]:
-    return list(db.scalars(_invoice_statement().order_by(Invoice.id)))
+def list_invoices(
+    db: DatabaseSession,
+    invoice_status: Annotated[str | None, Query(alias="status")] = None,
+) -> list[Invoice]:
+    statement = _invoice_statement().order_by(Invoice.id)
+    if invoice_status is not None:
+        statement = statement.where(Invoice.status == invoice_status)
+    return list(db.scalars(statement))
 
 
 @router.get("/{invoice_id}", response_model=InvoiceRead)
