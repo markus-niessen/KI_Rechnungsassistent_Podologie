@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -15,17 +15,29 @@ def utc_now() -> datetime:
 
 class Patient(Base):
     __tablename__ = "patients"
+    __table_args__ = (Index("idx_patients_name", "last_name", "first_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    patient_number: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    patient_nr: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    deceased: Mapped[bool] = mapped_column(default=False, nullable=False)
+    death_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     street: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    zip: Mapped[str | None] = mapped_column(String(20), nullable=True)
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    invoice_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    invoice_street: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    invoice_zip: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    invoice_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    home_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    room: Mapped[str | None] = mapped_column(String(50), nullable=True)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
 
     invoices: Mapped[list[Invoice]] = relationship(back_populates="patient")
 
@@ -61,8 +73,12 @@ class BusinessProfile(Base):
     iban: Mapped[str] = mapped_column(String(34), nullable=False)
     bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
 
     invoices: Mapped[list[Invoice]] = relationship(back_populates="business_profile")
 

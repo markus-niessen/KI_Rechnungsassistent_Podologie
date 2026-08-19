@@ -12,7 +12,7 @@ from app.invoice_logic import calculate_invoice_totals, confirm_invoice
 
 def test_calculate_invoice_totals_from_multiple_items() -> None:
     invoice = Invoice(
-        patient=Patient(patient_number="P-0003", first_name="Lena", last_name="Fischer"),
+        patient=Patient(patient_nr="P-0003", first_name="Lena", last_name="Fischer"),
         invoice_date=date(2026, 8, 19),
         due_date=date(2026, 8, 26),
         status="DRAFT",
@@ -62,12 +62,12 @@ def create_business_profile(location_code: str, invoice_prefix: str | None = Non
 
 
 def create_draft_invoice(
-    patient_number: str,
+    patient_nr: str,
     invoice_date: date,
     business_profile: BusinessProfile | None = None,
 ) -> Invoice:
     return Invoice(
-        patient=Patient(patient_number=patient_number, first_name="Jan", last_name="Becker"),
+        patient=Patient(patient_nr=patient_nr, first_name="Jan", last_name="Becker"),
         business_profile=business_profile,
         invoice_date=invoice_date,
         due_date=invoice_date,

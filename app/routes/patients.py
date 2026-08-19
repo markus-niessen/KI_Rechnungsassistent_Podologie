@@ -13,7 +13,7 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 
 
-def _next_patient_number(db: Session) -> str:
+def _next_patient_nr(db: Session) -> str:
     highest_id = db.scalar(select(func.max(Patient.id))) or 0
     return f"P-{highest_id + 1:06d}"
 
@@ -27,10 +27,13 @@ def _get_patient_or_404(db: Session, patient_id: int) -> Patient:
 
 @router.post("", response_model=PatientRead, status_code=status.HTTP_201_CREATED)
 def create_patient(patient_data: PatientCreate, db: DatabaseSession) -> Patient:
+    patient_values = patient_data.model_dump()
+    if not patient_values["deceased"]:
+        patient_values["death_date"] = None
     patient = Patient(
-        **patient_data.model_dump(),
-        patient_number=_next_patient_number(db),
-        active=True,
+        **patient_values,
+        patient_nr=_next_patient_nr(db),
+        active=not patient_data.deceased,
     )
     db.add(patient)
     db.commit()
@@ -51,7 +54,7 @@ def list_patients(
         pattern = f"%{search}%"
         statement = statement.where(
             or_(
-                Patient.patient_number.ilike(pattern),
+                Patient.patient_nr.ilike(pattern),
                 Patient.first_name.ilike(pattern),
                 Patient.last_name.ilike(pattern),
             )
@@ -69,6 +72,10 @@ def update_patient(patient_id: int, patient_data: PatientUpdate, db: DatabaseSes
     patient = _get_patient_or_404(db, patient_id)
     for field, value in patient_data.model_dump(exclude_unset=True).items():
         setattr(patient, field, value)
+    if patient.deceased:
+        patient.active = False
+    else:
+        patient.death_date = None
     db.commit()
     db.refresh(patient)
     return patient
@@ -86,6 +93,11 @@ def deactivate_patient(patient_id: int, db: DatabaseSession) -> Patient:
 @router.post("/{patient_id}/activate", response_model=PatientRead)
 def activate_patient(patient_id: int, db: DatabaseSession) -> Patient:
     patient = _get_patient_or_404(db, patient_id)
+    if patient.deceased:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deceased patient cannot be activated",
+        )
     patient.active = True
     db.commit()
     db.refresh(patient)

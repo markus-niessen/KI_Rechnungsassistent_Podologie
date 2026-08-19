@@ -163,7 +163,7 @@ def test_service_used_in_invoice_item_cannot_be_hard_deleted(client: TestClient)
     service_data = create_service(client, "Historische Leistung")
     with Session(app.state.test_engine) as session:
         service = session.get(Service, service_data["id"])
-        patient = Patient(patient_number="P-000001", first_name="Lena", last_name="Muster")
+        patient = Patient(patient_nr="P-000001", first_name="Lena", last_name="Muster")
         invoice = Invoice(
             patient=patient,
             invoice_date=date(2026, 8, 19),

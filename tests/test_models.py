@@ -31,10 +31,10 @@ def test_patient_invoice_payment_relationship() -> None:
 
     with Session(engine) as session:
         patient = Patient(
-            patient_number="P-0001",
+            patient_nr="P-0001",
             first_name="Erika",
             last_name="Müller",
-            date_of_birth=date(1940, 5, 12),
+            birth_date=date(1940, 5, 12),
             active=True,
         )
         invoice = Invoice(
@@ -61,7 +61,7 @@ def test_patient_invoice_payment_relationship() -> None:
 
         stored_invoice = session.get(Invoice, invoice.id)
         assert stored_invoice is not None
-        assert stored_invoice.patient.patient_number == "P-0001"
+        assert stored_invoice.patient.patient_nr == "P-0001"
         assert stored_invoice in stored_invoice.patient.invoices
         assert len(stored_invoice.payments) == 1
         assert stored_invoice.payments[0].amount == Decimal("69.02")
@@ -72,7 +72,7 @@ def test_invoice_items_keep_service_snapshot_values() -> None:
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        patient = Patient(patient_number="P-0002", first_name="Uwe", last_name="Schmidt")
+        patient = Patient(patient_nr="P-0002", first_name="Uwe", last_name="Schmidt")
         service = Service(
             name="Fußpflege klein",
             description="Kleine Fußpflege",

@@ -136,6 +136,24 @@ def test_business_profile_can_be_updated_and_protected_fields_are_rejected(clien
         assert invalid_response.status_code == 422
 
 
+def test_business_profile_logo_path_and_updated_at(client: TestClient) -> None:
+    payload = profile_payload("NORD")
+    payload["logo_path"] = "logos/podologie.png"
+
+    create_response = client.post("/business-profiles", json=payload)
+    profile = create_response.json()
+    update_response = client.patch(
+        f"/business-profiles/{profile['id']}",
+        json={"logo_path": "logos/podologie-neu.png"},
+    )
+
+    assert create_response.status_code == 201
+    assert profile["logo_path"] == "logos/podologie.png"
+    assert update_response.status_code == 200
+    assert update_response.json()["logo_path"] == "logos/podologie-neu.png"
+    assert update_response.json()["updated_at"] != profile["updated_at"]
+
+
 def test_deactivated_business_profile_is_hidden_unless_requested(client: TestClient) -> None:
     active_profile = create_profile(client, "NORD")
     inactive_profile = create_profile(client, "SUED")
@@ -257,7 +275,7 @@ def test_business_profile_with_invoice_cannot_be_hard_deleted(client: TestClient
     profile_data = create_profile(client, "EU")
     with Session(app.state.test_engine) as session:
         profile = session.get(BusinessProfile, profile_data["id"])
-        patient = Patient(patient_number="P-000001", first_name="Lena", last_name="Muster")
+        patient = Patient(patient_nr="P-000001", first_name="Lena", last_name="Muster")
         session.add(
             Invoice(
                 patient=patient,

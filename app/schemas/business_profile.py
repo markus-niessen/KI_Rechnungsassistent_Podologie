@@ -18,6 +18,7 @@ class BusinessProfileCreate(BaseModel):
     iban: str
     bic: str | None = None
     bank_name: str | None = None
+    logo_path: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -53,6 +54,7 @@ class BusinessProfileUpdate(BaseModel):
     iban: str | None = None
     bic: str | None = None
     bank_name: str | None = None
+    logo_path: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -92,7 +94,9 @@ class BusinessProfileRead(BaseModel):
     iban: str
     bic: str | None
     bank_name: str | None
+    logo_path: str | None
     active: bool
     created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
