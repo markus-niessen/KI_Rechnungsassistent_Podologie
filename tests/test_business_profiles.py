@@ -1,12 +1,16 @@
 from collections.abc import Generator
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from app.db.models import BusinessProfile, Invoice, InvoicePrefixReservation, Patient
 from app.db.session import get_db
 from app.main import app
 
@@ -19,6 +23,7 @@ def client() -> Generator[TestClient, None, None]:
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    app.state.test_engine = engine
 
     def override_get_db() -> Generator[Session, None, None]:
         with Session(engine) as session:
@@ -28,6 +33,7 @@ def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
+    del app.state.test_engine
     Base.metadata.drop_all(engine)
 
 
@@ -183,6 +189,12 @@ def test_profile_without_location_code_uses_its_id_as_invoice_prefix(client: Tes
     profile = response.json()
     assert profile["location_code"] is None
     assert profile["invoice_prefix"] == str(profile["id"])
+    with Session(app.state.test_engine) as session:
+        assert session.scalar(
+            select(InvoicePrefixReservation.invoice_prefix).where(
+                InvoicePrefixReservation.invoice_prefix == profile["invoice_prefix"]
+            )
+        ) == profile["invoice_prefix"]
 
 
 def test_invoice_prefix_cannot_be_changed_via_patch(client: TestClient) -> None:
@@ -191,3 +203,75 @@ def test_invoice_prefix_cannot_be_changed_via_patch(client: TestClient) -> None:
     response = client.patch(f"/business-profiles/{profile['id']}", json={"invoice_prefix": "other"})
 
     assert response.status_code == 422
+
+
+def test_business_profile_can_be_reactivated(client: TestClient) -> None:
+    profile = create_profile(client, "EU")
+
+    client.post(f"/business-profiles/{profile['id']}/deactivate")
+    response = client.post(f"/business-profiles/{profile['id']}/activate")
+
+    assert response.status_code == 200
+    assert response.json()["active"] is True
+    assert response.json()["invoice_prefix"] == "EU"
+
+
+def test_deleted_business_profile_keeps_its_invoice_prefix_reservation(client: TestClient) -> None:
+    first_profile = create_profile(client, "EU")
+    second_profile = create_profile(client, "EU")
+    third_profile = create_profile(client, "EU")
+
+    unconfirmed_response = client.delete(f"/business-profiles/{second_profile['id']}")
+    confirmed_response = client.delete(
+        f"/business-profiles/{second_profile['id']}", params={"confirm": "true"}
+    )
+    new_profile = create_profile(client, "EU")
+    get_response = client.get(f"/business-profiles/{second_profile['id']}")
+
+    assert first_profile["invoice_prefix"] == "EU"
+    assert second_profile["invoice_prefix"] == "EU-2"
+    assert third_profile["invoice_prefix"] == "EU-3"
+    assert unconfirmed_response.status_code == 400
+    assert confirmed_response.status_code == 204
+    assert get_response.status_code == 404
+    assert new_profile["invoice_prefix"] == "EU-4"
+    with Session(app.state.test_engine) as session:
+        assert session.scalar(
+            select(InvoicePrefixReservation.invoice_prefix).where(
+                InvoicePrefixReservation.invoice_prefix == "EU-2"
+            )
+        ) == "EU-2"
+
+
+def test_invoice_prefix_reservation_is_unique(client: TestClient) -> None:
+    profile = create_profile(client, "EU")
+
+    with Session(app.state.test_engine) as session:
+        session.add(InvoicePrefixReservation(invoice_prefix=profile["invoice_prefix"]))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+def test_business_profile_with_invoice_cannot_be_hard_deleted(client: TestClient) -> None:
+    profile_data = create_profile(client, "EU")
+    with Session(app.state.test_engine) as session:
+        profile = session.get(BusinessProfile, profile_data["id"])
+        patient = Patient(patient_number="P-000001", first_name="Lena", last_name="Muster")
+        session.add(
+            Invoice(
+                patient=patient,
+                business_profile=profile,
+                invoice_date=date(2026, 8, 19),
+                due_date=date(2026, 8, 26),
+                status="DRAFT",
+                total_net=Decimal("0.00"),
+                total_vat=Decimal("0.00"),
+                total_gross=Decimal("0.00"),
+            )
+        )
+        session.commit()
+
+    response = client.delete(f"/business-profiles/{profile_data['id']}", params={"confirm": "true"})
+
+    assert response.status_code == 409

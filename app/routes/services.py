@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Service
+from app.db.models import InvoiceItem, Service
 from app.db.session import get_db
 from app.schemas.service import ServiceCreate, ServiceRead, ServiceUpdate
 
@@ -66,3 +66,26 @@ def deactivate_service(service_id: int, db: DatabaseSession) -> Service:
     db.commit()
     db.refresh(service)
     return service
+
+
+@router.post("/{service_id}/activate", response_model=ServiceRead)
+def activate_service(service_id: int, db: DatabaseSession) -> Service:
+    service = _get_service_or_404(db, service_id)
+    service.active = True
+    db.commit()
+    db.refresh(service)
+    return service
+
+
+@router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_service(service_id: int, db: DatabaseSession, confirm: bool = False) -> None:
+    service = _get_service_or_404(db, service_id)
+    if not confirm:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Deletion requires confirm=true")
+    if db.scalar(select(InvoiceItem.id).where(InvoiceItem.service_id == service.id).limit(1)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Service cannot be deleted because invoice items exist",
+        )
+    db.delete(service)
+    db.commit()

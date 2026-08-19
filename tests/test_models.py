@@ -15,8 +15,9 @@ def test_core_tables_can_be_created_in_sqlite_memory_db() -> None:
 
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) == {
-        "business_profiles",
-        "patients",
+            "business_profiles",
+            "invoice_prefix_reservations",
+            "patients",
         "services",
         "invoices",
         "invoice_items",

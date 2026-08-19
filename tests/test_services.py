@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from app.db.models import Invoice, InvoiceItem, Patient, Service
 from app.db.session import get_db
 from app.main import app
 from app.schemas.service import ServiceCreate
@@ -21,6 +23,7 @@ def client() -> Generator[TestClient, None, None]:
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    app.state.test_engine = engine
 
     def override_get_db() -> Generator[Session, None, None]:
         with Session(engine) as session:
@@ -30,6 +33,7 @@ def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
+    del app.state.test_engine
     Base.metadata.drop_all(engine)
 
 
@@ -131,3 +135,59 @@ def test_deactivated_service_is_hidden_unless_requested(client: TestClient) -> N
         active_service["id"],
         inactive_service["id"],
     ]
+
+
+def test_service_can_be_reactivated(client: TestClient) -> None:
+    service = create_service(client, "Nagelkorrektur")
+
+    client.post(f"/services/{service['id']}/deactivate")
+    response = client.post(f"/services/{service['id']}/activate")
+
+    assert response.status_code == 200
+    assert response.json()["active"] is True
+
+
+def test_unused_service_requires_confirmation_before_hard_delete(client: TestClient) -> None:
+    service = create_service(client, "Unbenutzte Leistung")
+
+    unconfirmed_response = client.delete(f"/services/{service['id']}")
+    confirmed_response = client.delete(f"/services/{service['id']}", params={"confirm": "true"})
+    get_response = client.get(f"/services/{service['id']}")
+
+    assert unconfirmed_response.status_code == 400
+    assert confirmed_response.status_code == 204
+    assert get_response.status_code == 404
+
+
+def test_service_used_in_invoice_item_cannot_be_hard_deleted(client: TestClient) -> None:
+    service_data = create_service(client, "Historische Leistung")
+    with Session(app.state.test_engine) as session:
+        service = session.get(Service, service_data["id"])
+        patient = Patient(patient_number="P-000001", first_name="Lena", last_name="Muster")
+        invoice = Invoice(
+            patient=patient,
+            invoice_date=date(2026, 8, 19),
+            due_date=date(2026, 8, 26),
+            status="DRAFT",
+            total_net=Decimal("38.00"),
+            total_vat=Decimal("7.22"),
+            total_gross=Decimal("45.22"),
+        )
+        session.add(
+            InvoiceItem(
+                invoice=invoice,
+                service=service,
+                description="Historische Leistung",
+                quantity=Decimal("1.00"),
+                unit_net_price=Decimal("38.00"),
+                vat_rate=Decimal("19.00"),
+                line_net=Decimal("38.00"),
+                line_vat=Decimal("7.22"),
+                line_gross=Decimal("45.22"),
+            )
+        )
+        session.commit()
+
+    response = client.delete(f"/services/{service_data['id']}", params={"confirm": "true"})
+
+    assert response.status_code == 409

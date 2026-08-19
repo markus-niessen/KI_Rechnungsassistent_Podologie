@@ -67,6 +67,14 @@ class BusinessProfile(Base):
     invoices: Mapped[list[Invoice]] = relationship(back_populates="business_profile")
 
 
+class InvoicePrefixReservation(Base):
+    __tablename__ = "invoice_prefix_reservations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invoice_prefix: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 

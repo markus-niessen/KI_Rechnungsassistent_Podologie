@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Patient
+from app.db.models import Invoice, Patient
 from app.db.session import get_db
 from app.schemas.patient import PatientCreate, PatientRead, PatientUpdate
 
@@ -81,3 +81,26 @@ def deactivate_patient(patient_id: int, db: DatabaseSession) -> Patient:
     db.commit()
     db.refresh(patient)
     return patient
+
+
+@router.post("/{patient_id}/activate", response_model=PatientRead)
+def activate_patient(patient_id: int, db: DatabaseSession) -> Patient:
+    patient = _get_patient_or_404(db, patient_id)
+    patient.active = True
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+@router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_patient(patient_id: int, db: DatabaseSession, confirm: bool = False) -> None:
+    patient = _get_patient_or_404(db, patient_id)
+    if not confirm:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Deletion requires confirm=true")
+    if db.scalar(select(Invoice.id).where(Invoice.patient_id == patient.id).limit(1)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patient cannot be deleted because invoices exist",
+        )
+    db.delete(patient)
+    db.commit()

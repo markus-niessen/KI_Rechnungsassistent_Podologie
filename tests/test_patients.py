@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
+from app.db.models import Invoice, Patient
 from app.db.session import get_db
 from app.main import app
 
@@ -19,6 +22,7 @@ def client() -> Generator[TestClient, None, None]:
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    app.state.test_engine = engine
 
     def override_get_db() -> Generator[Session, None, None]:
         with Session(engine) as session:
@@ -28,6 +32,7 @@ def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
+    del app.state.test_engine
     Base.metadata.drop_all(engine)
 
 
@@ -108,3 +113,47 @@ def test_deactivated_patient_is_hidden_unless_requested(client: TestClient) -> N
         active_patient["id"],
         inactive_patient["id"],
     ]
+
+
+def test_patient_can_be_reactivated(client: TestClient) -> None:
+    patient = create_patient(client, "Gabi", "Lenz")
+
+    client.post(f"/patients/{patient['id']}/deactivate")
+    response = client.post(f"/patients/{patient['id']}/activate")
+
+    assert response.status_code == 200
+    assert response.json()["active"] is True
+
+
+def test_unused_patient_requires_confirmation_before_hard_delete(client: TestClient) -> None:
+    patient = create_patient(client, "Hugo", "Maas")
+
+    unconfirmed_response = client.delete(f"/patients/{patient['id']}")
+    confirmed_response = client.delete(f"/patients/{patient['id']}", params={"confirm": "true"})
+    get_response = client.get(f"/patients/{patient['id']}")
+
+    assert unconfirmed_response.status_code == 400
+    assert confirmed_response.status_code == 204
+    assert get_response.status_code == 404
+
+
+def test_patient_with_invoice_cannot_be_hard_deleted(client: TestClient) -> None:
+    patient_data = create_patient(client, "Ines", "Roth")
+    with Session(app.state.test_engine) as session:
+        patient = session.get(Patient, patient_data["id"])
+        session.add(
+            Invoice(
+                patient=patient,
+                invoice_date=date(2026, 8, 19),
+                due_date=date(2026, 8, 26),
+                status="DRAFT",
+                total_net=Decimal("0.00"),
+                total_vat=Decimal("0.00"),
+                total_gross=Decimal("0.00"),
+            )
+        )
+        session.commit()
+
+    response = client.delete(f"/patients/{patient_data['id']}", params={"confirm": "true"})
+
+    assert response.status_code == 409

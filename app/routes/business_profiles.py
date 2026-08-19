@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import BusinessProfile
+from app.db.models import BusinessProfile, Invoice, InvoicePrefixReservation
 from app.db.session import get_db
 from app.schemas.business_profile import BusinessProfileCreate, BusinessProfileRead, BusinessProfileUpdate
 
@@ -30,7 +30,7 @@ def _next_invoice_prefix(db: Session, business_profile: BusinessProfile) -> str:
         return str(business_profile.id)
 
     location_code = business_profile.location_code
-    existing_prefixes = set(db.scalars(select(BusinessProfile.invoice_prefix)))
+    existing_prefixes = set(db.scalars(select(InvoicePrefixReservation.invoice_prefix)))
     if location_code not in existing_prefixes:
         return location_code
 
@@ -54,6 +54,7 @@ def create_business_profile(profile_data: BusinessProfileCreate, db: DatabaseSes
         try:
             db.flush()
             business_profile.invoice_prefix = _next_invoice_prefix(db, business_profile)
+            db.add(InvoicePrefixReservation(invoice_prefix=business_profile.invoice_prefix))
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -112,3 +113,26 @@ def deactivate_business_profile(business_profile_id: int, db: DatabaseSession) -
     db.commit()
     db.refresh(business_profile)
     return business_profile
+
+
+@router.post("/{business_profile_id}/activate", response_model=BusinessProfileRead)
+def activate_business_profile(business_profile_id: int, db: DatabaseSession) -> BusinessProfile:
+    business_profile = _get_business_profile_or_404(db, business_profile_id)
+    business_profile.active = True
+    db.commit()
+    db.refresh(business_profile)
+    return business_profile
+
+
+@router.delete("/{business_profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_business_profile(business_profile_id: int, db: DatabaseSession, confirm: bool = False) -> None:
+    business_profile = _get_business_profile_or_404(db, business_profile_id)
+    if not confirm:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Deletion requires confirm=true")
+    if db.scalar(select(Invoice.id).where(Invoice.business_profile_id == business_profile.id).limit(1)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Business profile cannot be deleted because invoices exist",
+        )
+    db.delete(business_profile)
+    db.commit()
