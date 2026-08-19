@@ -35,7 +35,6 @@ def _next_invoice_number(db: Session, invoice: Invoice) -> str:
     existing_numbers = db.scalars(
         select(Invoice.invoice_number).where(
             Invoice.business_profile_id == business_profile.id,
-            Invoice.status == "CONFIRMED",
             Invoice.invoice_date >= year_start,
             Invoice.invoice_date < next_year_start,
             Invoice.invoice_number.is_not(None),
@@ -52,12 +51,17 @@ def _next_invoice_number(db: Session, invoice: Invoice) -> str:
     return f"{prefix}{sequence:06d}"
 
 
-def confirm_invoice(db: Session, invoice: Invoice) -> None:
+def finalize_invoice(db: Session, invoice: Invoice) -> None:
     if invoice.status != "DRAFT":
-        raise ValueError("Only DRAFT invoices can be confirmed.")
+        raise ValueError("Only DRAFT invoices can be finalized.")
     if invoice.id is None:
         raise ValueError("Invoice must be saved before confirmation.")
 
     calculate_invoice_totals(invoice)
     invoice.invoice_number = _next_invoice_number(db, invoice)
-    invoice.status = "CONFIRMED"
+    invoice.status = "FINAL"
+
+
+def confirm_invoice(db: Session, invoice: Invoice) -> None:
+    """Backward-compatible internal alias for the finalization operation."""
+    finalize_invoice(db, invoice)

@@ -139,7 +139,7 @@ def test_confirm_invoices_with_location_and_year_sequences() -> None:
                 fr_first_invoice.invoice_number,
             }
         ) == 3
-        assert eu_first_invoice.status == "CONFIRMED"
+        assert eu_first_invoice.status == "FINAL"
         assert eu_first_invoice.total_net == Decimal("38.00")
         assert eu_first_invoice.total_vat == Decimal("7.22")
         assert eu_first_invoice.total_gross == Decimal("45.22")

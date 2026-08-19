@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import BusinessProfile, Invoice, InvoiceItem, Patient, Service
 from app.db.session import get_db
-from app.invoice_logic import calculate_invoice_totals, money
+from app.invoice_logic import calculate_invoice_totals, finalize_invoice, money
 from app.schemas.invoice import (
     InvoiceCreate,
     InvoiceItemCreate,
@@ -85,6 +85,76 @@ def _recalculate_and_commit(db: Session, invoice: Invoice) -> None:
     db.refresh(invoice, attribute_names=["invoice_items"])
 
 
+def _has_text(value: str | None) -> bool:
+    return value is not None and bool(value.strip())
+
+
+def _has_complete_invoice_address(patient: Patient) -> bool:
+    alternative_recipient = (
+        patient.invoice_name,
+        patient.invoice_street,
+        patient.invoice_zip,
+        patient.invoice_city,
+    )
+    if all(_has_text(value) for value in alternative_recipient):
+        return True
+    return all(_has_text(value) for value in (patient.street, patient.zip, patient.city))
+
+
+def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
+    if not invoice.invoice_items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice must contain at least one item",
+        )
+    if invoice.business_profile is None or not invoice.business_profile.active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice requires an active business profile",
+        )
+    if invoice.invoice_date is None or invoice.due_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice date and due date are required",
+        )
+
+    for item in invoice.invoice_items:
+        if item.service_id is None or db.get(Service, item.service_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Every invoice item requires a valid service",
+            )
+        if (
+            not _has_text(item.service_name_snapshot)
+            or not _has_text(item.description)
+            or item.unit_net_price is None
+            or item.vat_rate is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Every invoice item requires complete service snapshots",
+            )
+
+    if invoice.document_type != "INVOICE":
+        return
+
+    patient_ids = {item.patient_id for item in invoice.invoice_items if item.patient_id is not None}
+    if invoice.patient_id is not None:
+        patient_ids.add(invoice.patient_id)
+    if len(patient_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An individual invoice requires exactly one patient recipient",
+        )
+
+    patient = db.get(Patient, patient_ids.pop())
+    if patient is None or not _has_complete_invoice_address(patient):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An individual invoice requires a complete invoice address",
+        )
+
+
 @router.post("", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
 def create_invoice(invoice_data: InvoiceCreate, db: DatabaseSession) -> Invoice:
     business_profile = _get_active_business_profile_or_error(db, invoice_data.company_id)
@@ -129,6 +199,16 @@ def update_invoice(invoice_id: int, invoice_data: InvoiceUpdate, db: DatabaseSes
         invoice.business_profile_id = _get_active_business_profile_or_error(db, updates.pop("company_id")).id
     for field, value in updates.items():
         setattr(invoice, field, value)
+    db.commit()
+    return _get_invoice_or_404(db, invoice.id)
+
+
+@router.post("/{invoice_id}/finalize", response_model=InvoiceRead)
+def finalize_invoice_endpoint(invoice_id: int, db: DatabaseSession) -> Invoice:
+    invoice = _get_invoice_or_404(db, invoice_id)
+    _require_draft(invoice)
+    _validate_invoice_for_finalization(db, invoice)
+    finalize_invoice(db, invoice)
     db.commit()
     return _get_invoice_or_404(db, invoice.id)
 

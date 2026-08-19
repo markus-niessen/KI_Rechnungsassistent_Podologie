@@ -67,6 +67,21 @@ def create_patient(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
+def create_billable_patient(client: TestClient) -> dict[str, object]:
+    response = client.post(
+        "/patients",
+        json={
+            "first_name": "Anna",
+            "last_name": "Beispiel",
+            "street": "Musterweg 5",
+            "zip": "50667",
+            "city": "Köln",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
 def create_invoice(client: TestClient, company_id: int) -> dict[str, object]:
     response = client.post(
         "/invoices",
@@ -204,6 +219,92 @@ def test_invoice_worklist_filters_drafts_and_keeps_drafts_independent(client: Te
     assert worklist[1]["item_count"] == 0
     assert Decimal(str(worklist[1]["total"])) == Decimal("0.00")
     assert worklist[1]["due_date"] == "2026-09-02"
+
+
+def test_finalize_invoice_assigns_number_snapshots_and_keeps_other_drafts_editable(
+    client: TestClient,
+) -> None:
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    patient = create_billable_patient(client)
+    first_invoice = create_invoice(client, business_profile["id"])
+    second_invoice = create_invoice(client, business_profile["id"])
+    first_item_response = client.post(
+        f"/invoices/{first_invoice['id']}/items",
+        json={"service_id": service["id"], "patient_id": patient["id"], "quantity": "2.00"},
+    )
+    first_item = first_item_response.json()["items"][0]
+    client.post(
+        f"/invoices/{second_invoice['id']}/items",
+        json={"service_id": service["id"], "patient_id": patient["id"]},
+    )
+
+    finalized_response = client.post(f"/invoices/{first_invoice['id']}/finalize")
+    second_draft_update = client.patch(
+        f"/invoices/{second_invoice['id']}", json={"due_date": "2026-09-10"}
+    )
+    second_finalized_response = client.post(f"/invoices/{second_invoice['id']}/finalize")
+
+    assert first_invoice["invoice_number"] is None
+    assert finalized_response.status_code == 200
+    finalized = finalized_response.json()
+    assert finalized["status"] == "FINAL"
+    assert finalized["invoice_number"] == "TEST-RE-2026-000001"
+    assert Decimal(str(finalized["subtotal"])) == Decimal("76.00")
+    assert Decimal(str(finalized["tax_total"])) == Decimal("14.44")
+    assert Decimal(str(finalized["total"])) == Decimal("90.44")
+    assert finalized["items"][0]["patient_name_snapshot"] == "Anna Beispiel"
+    assert finalized["items"][0]["service_name_snapshot"] == "Podologische Behandlung"
+    assert Decimal(str(finalized["items"][0]["unit_price"])) == Decimal("38.00")
+    assert Decimal(str(finalized["items"][0]["vat_rate"])) == Decimal("19.00")
+    assert second_draft_update.status_code == 200
+    assert second_draft_update.json()["status"] == "DRAFT"
+    assert second_finalized_response.json()["invoice_number"] == "TEST-RE-2026-000002"
+
+    client.patch(f"/services/{service['id']}", json={"name": "Geänderte Leistung"})
+    client.patch(f"/patients/{patient['id']}", json={"first_name": "Geändert"})
+    stored_final = client.get(f"/invoices/{first_invoice['id']}").json()
+    assert stored_final["items"][0]["patient_name_snapshot"] == "Anna Beispiel"
+    assert stored_final["items"][0]["service_name_snapshot"] == "Podologische Behandlung"
+
+    assert client.patch(f"/invoices/{first_invoice['id']}", json={"due_date": "2026-09-11"}).status_code == 409
+    assert client.post(
+        f"/invoices/{first_invoice['id']}/items", json={"service_id": service["id"]}
+    ).status_code == 409
+    assert client.patch(
+        f"/invoices/{first_invoice['id']}/items/{first_item['id']}", json={"quantity": "1.00"}
+    ).status_code == 409
+    assert client.delete(f"/invoices/{first_invoice['id']}/items/{first_item['id']}").status_code == 409
+
+
+def test_finalize_invoice_validates_draft_requirements(client: TestClient) -> None:
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    empty_invoice = create_invoice(client, business_profile["id"])
+    unaddressed_invoice = create_invoice(client, business_profile["id"])
+    item_response = client.post(
+        f"/invoices/{unaddressed_invoice['id']}/items", json={"service_id": service["id"]}
+    )
+
+    empty_response = client.post(f"/invoices/{empty_invoice['id']}/finalize")
+    unaddressed_response = client.post(f"/invoices/{unaddressed_invoice['id']}/finalize")
+
+    assert empty_response.status_code == 422
+    assert unaddressed_response.status_code == 422
+    assert client.post("/invoices/999/finalize").status_code == 404
+
+    patient = create_billable_patient(client)
+    item_id = item_response.json()["items"][0]["id"]
+    patient_update = client.patch(
+        f"/invoices/{unaddressed_invoice['id']}/items/{item_id}",
+        json={"patient_id": patient["id"]},
+    )
+    successful_response = client.post(f"/invoices/{unaddressed_invoice['id']}/finalize")
+
+    assert patient_update.status_code == 200
+    assert successful_response.status_code == 200
+    assert successful_response.json()["status"] == "FINAL"
+    assert client.post(f"/invoices/{unaddressed_invoice['id']}/finalize").status_code == 409
 
 
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:
