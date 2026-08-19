@@ -1,3 +1,4 @@
+````
 # PROJECT.md
 
 # KI-Rechnungsassistent für Podologie
@@ -107,6 +108,9 @@ Das MVP muss auch ohne KI vollständig nutzbar sein. Die KI unterstützt nur bei
 - OCR
 - komplexe Betreuer-/Angehörigenhistorie
 - vollständige Heimverwaltung
+- Heimtag-Workflow / Heimtag-Abschluss
+- Zahlungsverwaltung / Payment-CRUD
+- Teilzahlungen und offene Posten
 - umfangreiche Preisversionierung außerhalb der Rechnungs-Snapshots
 
 Diese Punkte dürfen später ergänzt werden, aber nicht den MVP-Termin gefährden.
@@ -197,7 +201,7 @@ Speichert Entwurf und finalen Belegkopf.
 - invoice_recipient_snapshot
 - invoice_address_snapshot
 - invoice_date
-- due_date optional
+- due_date
 - subtotal
 - tax_total
 - total
@@ -231,7 +235,11 @@ Status:
 - vat_rate
 - line_total
 
-### `payments`
+### Spätere Erweiterung: `payments`
+
+Die Zahlungsverwaltung gehört **nicht zum ersten MVP** und wird erst nach dem funktionsfähigen Rechnungsworkflow umgesetzt.
+
+Eine spätere Tabelle `payments` kann vorgesehen werden mit:
 
 - id
 - invoice_id
@@ -240,7 +248,9 @@ Status:
 - payment_method
 - note optional
 
-Damit können später auch Teilzahlungen sauber ergänzt werden.
+Damit können später Zahlungen und Teilzahlungen sauber ergänzt werden.
+
+Für das erste MVP ist **kein Payment-CRUD erforderlich**.
 
 ---
 
@@ -284,6 +294,8 @@ Der Benutzer muss immer die Möglichkeit haben:
 
 Mehrere Patienten/Leistungen für einen gemeinsamen Rechnungsempfänger.
 
+Die Sammelrechnung entsteht aus mehreren zuvor erfassten Entwürfen bzw. Positionen mit identischem Rechnungsempfänger.
+
 Positionen enthalten mindestens:
 
 - Position
@@ -308,6 +320,8 @@ Mehrseitigkeit muss unterstützt werden.
 - Hinweis auf erhaltene Zahlung
 - Praxisdaten
 - optional Unterschriftsbereich
+
+Für die Quittung im MVP reicht die Angabe bzw. Bestätigung von Zahlungsart und Betrag beim Erstellen des Belegs. Eine vollständige Zahlungsverwaltung oder ein Payment-CRUD ist dafür nicht erforderlich.
 
 Die Beleglogik darf nicht fest an A5 gekoppelt sein. Später sollen andere Ausgabeformate möglich sein, z. B.:
 
@@ -598,7 +612,50 @@ Zusätzlich:
 
 ---
 
-## 21. Definition of Done – MVP
+
+## 21. Umsetzungsreihenfolge für das MVP
+
+Damit der Kern des Projekts zuerst vollständig funktioniert, wird in dieser Reihenfolge umgesetzt:
+
+### Priorität 1 – Rechnungsworkflow
+
+1. Patienten-CRUD und Patientensuche
+2. Leistungen-CRUD
+3. Rechnungsentwurf
+4. Rechnungspositionen
+5. bearbeitbare Vorschau
+6. Arbeitsliste für mehrere Entwürfe
+7. Finalisierung und Belegnummer
+8. Snapshots
+9. PDF-Ausgabe
+
+### Priorität 2 – notwendige MVP-Erweiterungen
+
+10. Sammelrechnung
+11. mehrseitige PDF-Ausgabe
+12. QR-Code / GiroCode
+13. Quittung
+
+### Priorität 3 – Ausbildungsanforderungen
+
+14. KI-Strukturierung
+15. Zero-Shot- und Few-Shot-Prompt
+16. Dynamic Context Injection
+17. zweite Text-KI-Anbindung
+18. Vergleichsanalyse
+19. Tests und Dokumentation
+
+### Nach dem ersten MVP
+
+- Zahlungsverwaltung
+- Teilzahlungen / offene Posten
+- Heimtag-Workflow
+- Mahnwesen
+- weitere Dokumentationsfunktionen
+
+---
+
+## 22. Definition of Done – MVP
 
 Das MVP ist fertig, wenn vollständig möglich ist:
 
@@ -622,3 +679,5 @@ Das MVP ist fertig, wenn vollständig möglich ist:
 18. Dynamic Context Injection nachweisen
 19. Tests bestehen
 20. README, Vergleichsdokumentation, Notion, Präsentation und Video fertigstellen
+
+````
