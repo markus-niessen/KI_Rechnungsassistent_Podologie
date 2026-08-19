@@ -42,6 +42,28 @@ class Service(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class BusinessProfile(Base):
+    __tablename__ = "business_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    business_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    location_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    location_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    street: Mapped[str] = mapped_column(String(200), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    city: Mapped[str] = mapped_column(String(120), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    tax_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    vat_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ik_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    iban: Mapped[str] = mapped_column(String(34), nullable=False)
+    bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 

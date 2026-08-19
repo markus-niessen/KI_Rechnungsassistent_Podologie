@@ -14,7 +14,14 @@ def test_core_tables_can_be_created_in_sqlite_memory_db() -> None:
     Base.metadata.create_all(engine)
 
     inspector = inspect(engine)
-    assert set(inspector.get_table_names()) == {"patients", "services", "invoices", "invoice_items", "payments"}
+    assert set(inspector.get_table_names()) == {
+        "business_profiles",
+        "patients",
+        "services",
+        "invoices",
+        "invoice_items",
+        "payments",
+    }
 
 
 def test_patient_invoice_payment_relationship() -> None:
