@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.models import Invoice
 from app.db.session import get_db
+from app import invoice_pdf
 from app.main import app
 
 
@@ -305,6 +307,53 @@ def test_finalize_invoice_validates_draft_requirements(client: TestClient) -> No
     assert successful_response.status_code == 200
     assert successful_response.json()["status"] == "FINAL"
     assert client.post(f"/invoices/{unaddressed_invoice['id']}/finalize").status_code == 409
+
+
+def test_final_invoice_pdf_is_created_without_changing_invoices(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(invoice_pdf, "INVOICE_PDF_DIRECTORY", tmp_path)
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    patient = create_billable_patient(client)
+    final_invoice = create_invoice(client, business_profile["id"])
+    other_draft = create_invoice(client, business_profile["id"])
+    client.post(
+        f"/invoices/{final_invoice['id']}/items",
+        json={"service_id": service["id"], "patient_id": patient["id"]},
+    )
+    finalized = client.post(f"/invoices/{final_invoice['id']}/finalize").json()
+
+    pdf_response = client.get(f"/invoices/{final_invoice['id']}/pdf")
+    stored_final = client.get(f"/invoices/{final_invoice['id']}").json()
+    stored_draft = client.get(f"/invoices/{other_draft['id']}").json()
+
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
+    assert pdf_response.content.startswith(b"%PDF")
+    assert len(pdf_response.content) > 500
+    assert (tmp_path / "TEST-RE-2026-000001.pdf").read_bytes() == pdf_response.content
+    assert stored_final["status"] == "FINAL"
+    assert stored_final["invoice_number"] == finalized["invoice_number"]
+    assert stored_draft["status"] == "DRAFT"
+    assert stored_draft["invoice_number"] is None
+
+
+def test_invoice_pdf_rejects_drafts_missing_invoices_and_incomplete_final_invoices(
+    client: TestClient,
+) -> None:
+    business_profile = create_business_profile(client)
+    draft = create_invoice(client, business_profile["id"])
+
+    assert client.get(f"/invoices/{draft['id']}/pdf").status_code == 409
+    assert client.get("/invoices/999/pdf").status_code == 404
+
+    with Session(app.state.test_engine) as session:
+        incomplete_final = session.get(Invoice, draft["id"])
+        incomplete_final.status = "FINAL"
+        session.commit()
+
+    assert client.get(f"/invoices/{draft['id']}/pdf").status_code == 422
 
 
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:

@@ -1,12 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import BusinessProfile, Invoice, InvoiceItem, Patient, Service
 from app.db.session import get_db
 from app.invoice_logic import calculate_invoice_totals, finalize_invoice, money
+from app.invoice_pdf import render_invoice_pdf
 from app.schemas.invoice import (
     InvoiceCreate,
     InvoiceItemCreate,
@@ -155,6 +157,48 @@ def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
         )
 
 
+def _get_pdf_recipient_or_error(db: Session, invoice: Invoice) -> Patient:
+    if invoice.document_type != "INVOICE":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="PDF generation currently supports individual invoices only",
+        )
+    patient_ids = {item.patient_id for item in invoice.invoice_items if item.patient_id is not None}
+    if invoice.patient_id is not None:
+        patient_ids.add(invoice.patient_id)
+    if len(patient_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An individual invoice requires exactly one patient recipient",
+        )
+    patient = db.get(Patient, patient_ids.pop())
+    if patient is None or not _has_complete_invoice_address(patient):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="An individual invoice requires a complete invoice address",
+        )
+    return patient
+
+
+def _validate_invoice_for_pdf(db: Session, invoice: Invoice) -> Patient:
+    if invoice.status != "FINAL":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only FINAL invoices can be exported as PDF",
+        )
+    if invoice.invoice_number is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A final invoice number is required for PDF generation",
+        )
+    if invoice.business_profile is None or not invoice.invoice_items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice requires a business profile and at least one item",
+        )
+    return _get_pdf_recipient_or_error(db, invoice)
+
+
 @router.post("", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
 def create_invoice(invoice_data: InvoiceCreate, db: DatabaseSession) -> Invoice:
     business_profile = _get_active_business_profile_or_error(db, invoice_data.company_id)
@@ -211,6 +255,18 @@ def finalize_invoice_endpoint(invoice_id: int, db: DatabaseSession) -> Invoice:
     finalize_invoice(db, invoice)
     db.commit()
     return _get_invoice_or_404(db, invoice.id)
+
+
+@router.get("/{invoice_id}/pdf")
+def get_invoice_pdf(invoice_id: int, db: DatabaseSession) -> FileResponse:
+    invoice = _get_invoice_or_404(db, invoice_id)
+    recipient = _validate_invoice_for_pdf(db, invoice)
+    pdf_path = render_invoice_pdf(invoice, invoice.business_profile, recipient)
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=pdf_path.name,
+    )
 
 
 @router.get("/{invoice_id}/items", response_model=list[InvoiceItemRead])
