@@ -96,8 +96,9 @@ class Invoice(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     invoice_number: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
-    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), nullable=False)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True)
     business_profile_id: Mapped[int | None] = mapped_column(ForeignKey("business_profiles.id"), nullable=True)
+    document_type: Mapped[str] = mapped_column(String(30), default="INVOICE", nullable=False)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -117,7 +118,10 @@ class InvoiceItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), nullable=True)
     service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"), nullable=True)
+    patient_name_snapshot: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    service_name_snapshot: Mapped[str | None] = mapped_column(String(250), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     unit_net_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -127,6 +131,7 @@ class InvoiceItem(Base):
     line_gross: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     invoice: Mapped[Invoice] = relationship(back_populates="invoice_items")
+    patient: Mapped[Patient | None] = relationship()
     service: Mapped[Service | None] = relationship()
 
 

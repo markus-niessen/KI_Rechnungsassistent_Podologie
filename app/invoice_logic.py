@@ -1,5 +1,5 @@
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,13 +7,20 @@ from sqlalchemy.orm import Session
 from app.db.models import Invoice
 
 
+MONEY_QUANTUM = Decimal("0.01")
+
+
+def money(value: Decimal | int) -> Decimal:
+    return Decimal(value).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+
+
 def calculate_invoice_totals(invoice: Invoice) -> None:
     if invoice.status != "DRAFT":
         raise ValueError("Only DRAFT invoices can be changed.")
 
-    invoice.total_net = sum((item.line_net for item in invoice.invoice_items), Decimal("0.00"))
-    invoice.total_vat = sum((item.line_vat for item in invoice.invoice_items), Decimal("0.00"))
-    invoice.total_gross = sum((item.line_gross for item in invoice.invoice_items), Decimal("0.00"))
+    invoice.total_net = money(sum((item.line_net for item in invoice.invoice_items), Decimal("0.00")))
+    invoice.total_vat = money(sum((item.line_vat for item in invoice.invoice_items), Decimal("0.00")))
+    invoice.total_gross = money(sum((item.line_gross for item in invoice.invoice_items), Decimal("0.00")))
 
 
 def _next_invoice_number(db: Session, invoice: Invoice) -> str:
