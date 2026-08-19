@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -9,9 +10,11 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.platypus import Image as PdfImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.db.models import BusinessProfile, Invoice, Patient
+from app.girocode import build_epc_girocode_payload, create_girocode_qr_image
 
 
 INVOICE_PDF_DIRECTORY = Path("generated/invoices")
@@ -193,7 +196,18 @@ def render_invoice_pdf(
     if business_profile.bic:
         payment_lines.append(f"BIC: {escape(business_profile.bic)}")
     payment_lines.append(f"Verwendungszweck: Rechnung {escape(invoice.invoice_number)}")
-    story.append(Paragraph("<br/>".join(payment_lines), styles["BodyText"]))
+    payment_lines.append("GiroCode für SEPA-Überweisung")
+    girocode_buffer = BytesIO()
+    create_girocode_qr_image(build_epc_girocode_payload(invoice, business_profile)).save(
+        girocode_buffer, format="PNG"
+    )
+    girocode_buffer.seek(0)
+    payment_table = Table(
+        [[Paragraph("<br/>".join(payment_lines), styles["BodyText"]), PdfImage(girocode_buffer, 32 * mm, 32 * mm)]],
+        colWidths=[120 * mm, 40 * mm],
+    )
+    payment_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(payment_table)
 
     document.build(story)
     return output_path

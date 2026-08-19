@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.models import Invoice
+from app.db.models import BusinessProfile, Invoice
 from app.db.session import get_db
 from app import invoice_pdf
 from app.main import app
@@ -354,6 +354,30 @@ def test_invoice_pdf_rejects_drafts_missing_invoices_and_incomplete_final_invoic
         session.commit()
 
     assert client.get(f"/invoices/{draft['id']}/pdf").status_code == 422
+
+
+def test_invoice_pdf_rejects_missing_iban_without_changing_final_invoice(client: TestClient) -> None:
+    business_profile = create_business_profile(client)
+    service = create_service(client)
+    patient = create_billable_patient(client)
+    invoice = create_invoice(client, business_profile["id"])
+    client.post(
+        f"/invoices/{invoice['id']}/items",
+        json={"service_id": service["id"], "patient_id": patient["id"]},
+    )
+    finalized = client.post(f"/invoices/{invoice['id']}/finalize").json()
+
+    with Session(app.state.test_engine) as session:
+        stored_profile = session.get(BusinessProfile, business_profile["id"])
+        stored_profile.iban = ""
+        session.commit()
+
+    pdf_response = client.get(f"/invoices/{invoice['id']}/pdf")
+    stored_invoice = client.get(f"/invoices/{invoice['id']}").json()
+
+    assert pdf_response.status_code == 422
+    assert stored_invoice["invoice_number"] == finalized["invoice_number"]
+    assert stored_invoice["total"] == finalized["total"]
 
 
 def test_invoice_item_validation_and_non_draft_protection(client: TestClient) -> None:

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import BusinessProfile, Invoice, InvoiceItem, Patient, Service
 from app.db.session import get_db
+from app.girocode import build_epc_girocode_payload
 from app.invoice_logic import calculate_invoice_totals, finalize_invoice, money
 from app.invoice_pdf import render_invoice_pdf
 from app.schemas.invoice import (
@@ -196,6 +197,13 @@ def _validate_invoice_for_pdf(db: Session, invoice: Invoice) -> Patient:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invoice requires a business profile and at least one item",
         )
+    try:
+        build_epc_girocode_payload(invoice, invoice.business_profile)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
     return _get_pdf_recipient_or_error(db, invoice)
 
 
