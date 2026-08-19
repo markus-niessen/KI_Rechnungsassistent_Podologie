@@ -2,11 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Invoice, Patient
+from app.db.models import Invoice, InvoiceItem, Patient
 from app.db.session import get_db
-from app.schemas.patient import PatientCreate, PatientRead, PatientUpdate
+from app.schemas.patient import PatientCreate, PatientInvoiceRead, PatientRead, PatientUpdate
 
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -60,6 +60,36 @@ def list_patients(
             )
         )
     return list(db.scalars(statement))
+
+
+@router.get("/{patient_id}/invoices", response_model=list[PatientInvoiceRead])
+def list_patient_invoices(patient_id: int, db: DatabaseSession) -> list[PatientInvoiceRead]:
+    _get_patient_or_404(db, patient_id)
+    statement = (
+        select(Invoice)
+        .join(InvoiceItem, InvoiceItem.invoice_id == Invoice.id)
+        .where(InvoiceItem.patient_id == patient_id)
+        .options(selectinload(Invoice.invoice_items))
+        .distinct()
+        .order_by(Invoice.id)
+    )
+    invoices = db.scalars(statement).unique().all()
+    return [
+        PatientInvoiceRead(
+            id=invoice.id,
+            invoice_number=invoice.invoice_number,
+            document_type=invoice.document_type,
+            status=invoice.status,
+            invoice_date=invoice.invoice_date,
+            due_date=invoice.due_date,
+            subtotal=invoice.total_net,
+            tax_total=invoice.total_vat,
+            total=invoice.total_gross,
+            item_count=len(invoice.invoice_items),
+            pdf_available=invoice.status == "FINAL" and invoice.invoice_number is not None,
+        )
+        for invoice in invoices
+    ]
 
 
 @router.get("/{patient_id}", response_model=PatientRead)

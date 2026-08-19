@@ -234,3 +234,86 @@ def test_deceased_status_can_be_corrected_before_reactivation(client: TestClient
     assert correction_response.json()["active"] is False
     assert activate_response.status_code == 200
     assert activate_response.json()["active"] is True
+
+
+def test_patient_invoices_include_drafts_finals_and_no_duplicates(client: TestClient) -> None:
+    business_profile_response = client.post(
+        "/business-profiles",
+        json={
+            "business_name": "Podologie Testpraxis",
+            "location_name": "Köln",
+            "location_code": "TEST",
+            "street": "Teststraße 1",
+            "postal_code": "50667",
+            "city": "Köln",
+            "iban": "DE89370400440532013000",
+        },
+    )
+    service_response = client.post(
+        "/services",
+        json={"name": "Podologische Behandlung", "net_price": "38.00", "vat_rate": "19.00"},
+    )
+    patient = create_patient(
+        client,
+        "Anna",
+        "Beispiel",
+        street="Musterweg 5",
+        zip="50667",
+        city="Köln",
+    )
+    other_patient = create_patient(client, "Bernd", "Anders")
+    patient_without_invoices = create_patient(client, "Clara", "Leer")
+    company_id = business_profile_response.json()["id"]
+    service_id = service_response.json()["id"]
+
+    def create_invoice_for(patient_id: int) -> dict[str, object]:
+        invoice_response = client.post(
+            "/invoices",
+            json={
+                "company_id": company_id,
+                "invoice_date": "2026-08-19",
+                "due_date": "2026-09-02",
+            },
+        )
+        assert invoice_response.status_code == 201
+        invoice = invoice_response.json()
+        add_item_response = client.post(
+            f"/invoices/{invoice['id']}/items",
+            json={"service_id": service_id, "patient_id": patient_id},
+        )
+        assert add_item_response.status_code == 201
+        return invoice
+
+    draft_invoice = create_invoice_for(patient["id"])
+    second_item_response = client.post(
+        f"/invoices/{draft_invoice['id']}/items",
+        json={"service_id": service_id, "patient_id": patient["id"]},
+    )
+    final_invoice = create_invoice_for(patient["id"])
+    other_invoice = create_invoice_for(other_patient["id"])
+    final_response = client.post(f"/invoices/{final_invoice['id']}/finalize")
+
+    response = client.get(f"/patients/{patient['id']}/invoices")
+    empty_response = client.get(f"/patients/{patient_without_invoices['id']}/invoices")
+    missing_response = client.get("/patients/999/invoices")
+
+    assert second_item_response.status_code == 201
+    assert final_response.status_code == 200
+    assert response.status_code == 200
+    invoices = response.json()
+    assert [invoice["id"] for invoice in invoices] == [draft_invoice["id"], final_invoice["id"]]
+    assert invoices[0]["status"] == "DRAFT"
+    assert invoices[0]["invoice_number"] is None
+    assert invoices[0]["item_count"] == 2
+    assert invoices[0]["pdf_available"] is False
+    assert invoices[1]["status"] == "FINAL"
+    assert invoices[1]["invoice_number"] == "TEST-RE-2026-000001"
+    assert invoices[1]["item_count"] == 1
+    assert invoices[1]["pdf_available"] is True
+    assert invoices[1]["subtotal"] == "38.00"
+    assert invoices[1]["tax_total"] == "7.22"
+    assert invoices[1]["total"] == "45.22"
+    assert other_invoice["id"] not in [invoice["id"] for invoice in invoices]
+    assert empty_response.status_code == 200
+    assert empty_response.json() == []
+    assert missing_response.status_code == 404

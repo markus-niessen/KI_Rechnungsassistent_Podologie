@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -63,3 +64,17 @@ class PatientRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PatientInvoiceRead(BaseModel):
+    id: int
+    invoice_number: str | None
+    document_type: str
+    status: str
+    invoice_date: date
+    due_date: date
+    subtotal: Decimal
+    tax_total: Decimal
+    total: Decimal
+    item_count: int
+    pdf_available: bool
