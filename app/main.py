@@ -4,10 +4,12 @@ from app.core.config import get_settings
 from app.db.base import Base
 import app.db.models  # noqa: F401
 from app.db.session import engine
+from app.routes.patients import router as patients_router
 
 app = FastAPI(title=get_settings().app_name)
 
 Base.metadata.create_all(bind=engine)
+app.include_router(patients_router)
 
 
 @app.get("/health", tags=["system"])

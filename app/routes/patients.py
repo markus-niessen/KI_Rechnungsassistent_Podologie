@@ -1,0 +1,83 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
+
+from app.db.models import Patient
+from app.db.session import get_db
+from app.schemas.patient import PatientCreate, PatientRead, PatientUpdate
+
+
+router = APIRouter(prefix="/patients", tags=["patients"])
+DatabaseSession = Annotated[Session, Depends(get_db)]
+
+
+def _next_patient_number(db: Session) -> str:
+    highest_id = db.scalar(select(func.max(Patient.id))) or 0
+    return f"P-{highest_id + 1:06d}"
+
+
+def _get_patient_or_404(db: Session, patient_id: int) -> Patient:
+    patient = db.get(Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+    return patient
+
+
+@router.post("", response_model=PatientRead, status_code=status.HTTP_201_CREATED)
+def create_patient(patient_data: PatientCreate, db: DatabaseSession) -> Patient:
+    patient = Patient(
+        **patient_data.model_dump(),
+        patient_number=_next_patient_number(db),
+        active=True,
+    )
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+@router.get("", response_model=list[PatientRead])
+def list_patients(
+    db: DatabaseSession,
+    include_inactive: bool = False,
+    search: Annotated[str | None, Query()] = None,
+) -> list[Patient]:
+    statement = select(Patient).order_by(Patient.id)
+    if not include_inactive:
+        statement = statement.where(Patient.active.is_(True))
+    if search:
+        pattern = f"%{search}%"
+        statement = statement.where(
+            or_(
+                Patient.patient_number.ilike(pattern),
+                Patient.first_name.ilike(pattern),
+                Patient.last_name.ilike(pattern),
+            )
+        )
+    return list(db.scalars(statement))
+
+
+@router.get("/{patient_id}", response_model=PatientRead)
+def get_patient(patient_id: int, db: DatabaseSession) -> Patient:
+    return _get_patient_or_404(db, patient_id)
+
+
+@router.patch("/{patient_id}", response_model=PatientRead)
+def update_patient(patient_id: int, patient_data: PatientUpdate, db: DatabaseSession) -> Patient:
+    patient = _get_patient_or_404(db, patient_id)
+    for field, value in patient_data.model_dump(exclude_unset=True).items():
+        setattr(patient, field, value)
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+@router.post("/{patient_id}/deactivate", response_model=PatientRead)
+def deactivate_patient(patient_id: int, db: DatabaseSession) -> Patient:
+    patient = _get_patient_or_404(db, patient_id)
+    patient.active = False
+    db.commit()
+    db.refresh(patient)
+    return patient
