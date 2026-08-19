@@ -46,7 +46,7 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    invoice_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    invoice_number: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), nullable=False)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)

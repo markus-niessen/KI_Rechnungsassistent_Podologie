@@ -54,5 +54,6 @@ def test_patient_invoice_payment_relationship() -> None:
         stored_invoice = session.get(Invoice, invoice.id)
         assert stored_invoice is not None
         assert stored_invoice.patient.patient_number == "P-0001"
+        assert stored_invoice in stored_invoice.patient.invoices
         assert len(stored_invoice.payments) == 1
         assert stored_invoice.payments[0].amount == Decimal("69.02")
