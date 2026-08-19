@@ -37,7 +37,7 @@ def test_patient_invoice_payment_relationship() -> None:
             active=True,
         )
         invoice = Invoice(
-            invoice_number="RE-2026-0001",
+            invoice_number=None,
             patient=patient,
             invoice_date=date(2026, 8, 19),
             due_date=date(2026, 8, 26),

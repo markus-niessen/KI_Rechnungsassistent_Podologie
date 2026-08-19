@@ -63,6 +63,8 @@ class BusinessProfile(Base):
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+    invoices: Mapped[list[Invoice]] = relationship(back_populates="business_profile")
+
 
 class Invoice(Base):
     __tablename__ = "invoices"
@@ -70,6 +72,7 @@ class Invoice(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     invoice_number: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), nullable=False)
+    business_profile_id: Mapped[int | None] = mapped_column(ForeignKey("business_profiles.id"), nullable=True)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -79,6 +82,7 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     patient: Mapped[Patient] = relationship(back_populates="invoices")
+    business_profile: Mapped[BusinessProfile | None] = relationship(back_populates="invoices")
     payments: Mapped[list[Payment]] = relationship(back_populates="invoice")
     invoice_items: Mapped[list[InvoiceItem]] = relationship(back_populates="invoice")
 
