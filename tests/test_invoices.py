@@ -348,6 +348,13 @@ def test_final_invoice_pdf_is_created_without_changing_invoices(
     assert pdf_response.content.startswith(b"%PDF")
     assert len(pdf_response.content) > 500
     assert (tmp_path / "TEST-RE-2026-000001.pdf").read_bytes() == pdf_response.content
+    pdf_text = PdfReader(tmp_path / "TEST-RE-2026-000001.pdf").pages[0].extract_text()
+    assert "Rechnung" in pdf_text
+    assert "Pos." in pdf_text
+    assert "Leistung / Produkt" in pdf_text
+    assert "Zahlungsinformationen" in pdf_text
+    assert "GiroCode" in pdf_text
+    assert "Patient" not in pdf_text
     assert stored_final["status"] == "FINAL"
     assert stored_final["invoice_number"] == finalized["invoice_number"]
     assert stored_draft["status"] == "DRAFT"
@@ -448,6 +455,12 @@ def test_collective_invoice_finalization_pdf_and_write_protection(
     assert pdf_response.content.startswith(b"%PDF")
     assert len(pdf_response.content) > 500
     assert (tmp_path / "TEST-RE-2026-000001.pdf").is_file()
+    pdf_text = PdfReader(tmp_path / "TEST-RE-2026-000001.pdf").pages[0].extract_text()
+    assert "Sammelrechnung" in pdf_text
+    assert "Patient" in pdf_text
+    assert "Anna Beispiel" in pdf_text
+    assert "Bernd Beispiel" in pdf_text
+    assert "GiroCode" in pdf_text
     assert client.patch(
         f"/invoices/{collective_invoice['id']}", json={"due_date": "2026-09-10"}
     ).status_code == 409
