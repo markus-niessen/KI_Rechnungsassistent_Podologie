@@ -112,6 +112,24 @@ class Invoice(Base):
     payments: Mapped[list[Payment]] = relationship(back_populates="invoice")
     invoice_items: Mapped[list[InvoiceItem]] = relationship(back_populates="invoice")
 
+    @property
+    def paid_amount(self) -> Decimal:
+        return sum((Decimal(payment.amount) for payment in self.payments), Decimal("0.00")).quantize(
+            Decimal("0.01")
+        )
+
+    @property
+    def remaining_amount(self) -> Decimal:
+        return (Decimal(self.total_gross) - self.paid_amount).quantize(Decimal("0.01"))
+
+    @property
+    def payment_status(self) -> str:
+        if self.paid_amount == Decimal("0.00"):
+            return "OPEN"
+        if self.remaining_amount == Decimal("0.00"):
+            return "PAID"
+        return "PARTIALLY_PAID"
+
 
 class InvoiceItem(Base):
     __tablename__ = "invoice_items"

@@ -28,6 +28,7 @@ def _invoice_statement():
     return select(Invoice).options(
         selectinload(Invoice.business_profile),
         selectinload(Invoice.invoice_items),
+        selectinload(Invoice.payments),
     )
 
 

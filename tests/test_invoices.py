@@ -455,13 +455,13 @@ def test_collective_invoice_finalization_pdf_and_write_protection(
     assert finalized_response.status_code == 200
     finalized = finalized_response.json()
     assert finalized["status"] == "FINAL"
-    assert finalized["invoice_number"] == "TEST-RE-2026-000001"
+    assert finalized["invoice_number"] == "TEST-SR-2026-000001"
     assert pdf_response.status_code == 200
     assert pdf_response.headers["content-type"].startswith("application/pdf")
     assert pdf_response.content.startswith(b"%PDF")
     assert len(pdf_response.content) > 500
-    assert (tmp_path / "TEST-RE-2026-000001.pdf").is_file()
-    pdf_text = PdfReader(tmp_path / "TEST-RE-2026-000001.pdf").pages[0].extract_text()
+    assert (tmp_path / "TEST-SR-2026-000001.pdf").is_file()
+    pdf_text = PdfReader(tmp_path / "TEST-SR-2026-000001.pdf").pages[0].extract_text()
     assert "Sammelrechnung" in pdf_text
     assert "Patient" in pdf_text
     assert "Anna Beispiel" in pdf_text
@@ -527,7 +527,7 @@ def test_large_collective_invoice_pdf_spans_pages_with_repeated_table_header(
     finalized = client.post(f"/invoices/{invoice['id']}/finalize").json()
     pdf_response = client.get(f"/invoices/{invoice['id']}/pdf")
     stored = client.get(f"/invoices/{invoice['id']}").json()
-    reader = PdfReader(tmp_path / "TEST-RE-2026-000001.pdf")
+    reader = PdfReader(tmp_path / "TEST-SR-2026-000001.pdf")
     page_texts = [page.extract_text() or "" for page in reader.pages]
 
     assert finalized["status"] == "FINAL"
@@ -536,7 +536,7 @@ def test_large_collective_invoice_pdf_spans_pages_with_repeated_table_header(
     assert len(reader.pages) > 1
     assert "Patient" in page_texts[1]
     assert "Leistung" in page_texts[1]
-    assert "Sammelrechnung TEST-RE-2026-000001" in page_texts[1]
+    assert "Sammelrechnung TEST-SR-2026-000001" in page_texts[1]
     assert "Seite 2" in page_texts[1]
     assert Decimal(str(stored["subtotal"])) == Decimal("1140.00")
     assert Decimal(str(stored["tax_total"])) == Decimal("216.60")

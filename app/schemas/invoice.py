@@ -80,6 +80,9 @@ class InvoiceRead(BaseModel):
     subtotal: Decimal = Field(validation_alias="total_net")
     tax_total: Decimal = Field(validation_alias="total_vat")
     total: Decimal = Field(validation_alias="total_gross")
+    paid_amount: Decimal
+    remaining_amount: Decimal
+    payment_status: Literal["OPEN", "PARTIALLY_PAID", "PAID"]
     created_at: datetime
     company: InvoiceBusinessProfileRead | None = Field(validation_alias="business_profile")
     items: list[InvoiceItemRead] = Field(validation_alias="invoice_items")

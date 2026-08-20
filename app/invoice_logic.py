@@ -8,6 +8,11 @@ from app.db.models import Invoice
 
 
 MONEY_QUANTUM = Decimal("0.01")
+DOCUMENT_NUMBER_CODES = {
+    "INVOICE": "RE",
+    "COLLECTIVE_INVOICE": "SR",
+    "RECEIPT": "QT",
+}
 
 
 def money(value: Decimal | int) -> Decimal:
@@ -31,7 +36,10 @@ def _next_invoice_number(db: Session, invoice: Invoice) -> str:
     year = invoice.invoice_date.year
     year_start = date(year, 1, 1)
     next_year_start = date(year + 1, 1, 1)
-    prefix = f"{business_profile.invoice_prefix}-RE-{year}-"
+    document_code = DOCUMENT_NUMBER_CODES.get(invoice.document_type)
+    if document_code is None:
+        raise ValueError("Invoice has an unsupported document type.")
+    prefix = f"{business_profile.invoice_prefix}-{document_code}-{year}-"
     existing_numbers = db.scalars(
         select(Invoice.invoice_number).where(
             Invoice.business_profile_id == business_profile.id,

@@ -172,3 +172,28 @@ def test_same_location_code_profiles_have_separate_invoice_number_prefixes() -> 
         assert eu_invoice.invoice_number == f"EU-RE-{year}-000001"
         assert eu_second_invoice.invoice_number == f"EU-2-RE-{year}-000001"
         assert eu_invoice.invoice_number != eu_second_invoice.invoice_number
+
+
+def test_document_types_use_separate_number_codes_and_sequences() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        invoice_date = date.today()
+        business_profile = create_business_profile("EU")
+        invoice = create_draft_invoice("P-0010", invoice_date, business_profile)
+        collective_invoice = create_draft_invoice("P-0011", invoice_date, business_profile)
+        collective_invoice.document_type = "COLLECTIVE_INVOICE"
+        receipt = create_draft_invoice("P-0012", invoice_date, business_profile)
+        receipt.document_type = "RECEIPT"
+        session.add_all([business_profile, invoice, collective_invoice, receipt])
+        session.commit()
+
+        confirm_invoice(session, invoice)
+        confirm_invoice(session, collective_invoice)
+        confirm_invoice(session, receipt)
+
+        year = invoice_date.year
+        assert invoice.invoice_number == f"EU-RE-{year}-000001"
+        assert collective_invoice.invoice_number == f"EU-SR-{year}-000001"
+        assert receipt.invoice_number == f"EU-QT-{year}-000001"
