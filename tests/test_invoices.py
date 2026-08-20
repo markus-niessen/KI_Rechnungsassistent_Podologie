@@ -434,6 +434,10 @@ def test_collective_invoice_finalization_pdf_and_write_protection(
         f"/invoices/{collective_invoice['id']}/items",
         json={"service_id": second_service_response.json()["id"], "patient_id": second_patient_response.json()["id"]},
     )
+    additional_product_response = client.post(
+        f"/invoices/{collective_invoice['id']}/items",
+        json={"service_id": second_service_response.json()["id"], "patient_id": first_patient_response.json()["id"]},
+    )
     draft = client.get(f"/invoices/{collective_invoice['id']}").json()
     finalized_response = client.post(f"/invoices/{collective_invoice['id']}/finalize")
     pdf_response = client.get(f"/invoices/{collective_invoice['id']}/pdf")
@@ -441,11 +445,13 @@ def test_collective_invoice_finalization_pdf_and_write_protection(
     assert draft_pdf_response.status_code == 409
     assert first_item_response.status_code == 201
     assert second_item_response.status_code == 201
+    assert additional_product_response.status_code == 201
     assert draft["status"] == "DRAFT"
-    assert [item["patient_name_snapshot"] for item in draft["items"]] == ["Anna Beispiel", "Bernd Beispiel"]
-    assert Decimal(str(draft["subtotal"])) == Decimal("86.00")
-    assert Decimal(str(draft["tax_total"])) == Decimal("15.14")
-    assert Decimal(str(draft["total"])) == Decimal("101.14")
+    assert [item["patient_name_snapshot"] for item in draft["items"]] == ["Anna Beispiel", "Bernd Beispiel", "Anna Beispiel"]
+    assert draft["items"][2]["service_name_snapshot"] == "Podologische Zusatzleistung"
+    assert Decimal(str(draft["subtotal"])) == Decimal("96.00")
+    assert Decimal(str(draft["tax_total"])) == Decimal("15.84")
+    assert Decimal(str(draft["total"])) == Decimal("111.84")
     assert finalized_response.status_code == 200
     finalized = finalized_response.json()
     assert finalized["status"] == "FINAL"
