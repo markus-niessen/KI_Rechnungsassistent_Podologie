@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.models import BusinessProfile, Invoice
 from app.db.session import get_db
+from app.schemas.ai import AIReviewResult, AIValidatedExtractionResponse
 from app import invoice_pdf
 from app.main import app
 
@@ -97,6 +98,33 @@ def create_invoice(client: TestClient, company_id: int) -> dict[str, object]:
     )
     assert response.status_code == 201
     return response.json()
+
+
+def test_ai_source_and_review_comment_can_be_stored_on_draft_invoice(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = create_business_profile(client)
+    invoice = create_invoice(client, int(business_profile["id"]))
+    source_text = "Fiktive Person: Behandlung durchgeführt."
+    result = AIValidatedExtractionResponse(
+        source_text=source_text,
+        data={"strukturierte_daten": {}},
+        validation=AIReviewResult(status="manual_review_required", issues=[], summary="Bitte prüfen."),
+        correction_attempted=True,
+        manual_review_required=True,
+        ai_review_comment="KI-Prüfung erforderlich: Bitte prüfen.",
+    )
+    monkeypatch.setattr(ai_routes, "extract_and_validate", lambda text: result)
+
+    response = client.post("/ai/extract-and-validate", json={"text": source_text, "invoice_id": invoice["id"]})
+    stored_invoice = client.get(f"/invoices/{invoice['id']}")
+
+    assert response.status_code == 200
+    assert stored_invoice.status_code == 200
+    assert stored_invoice.json()["source_text"] == source_text
+    assert stored_invoice.json()["ai_review_comment"] == result.ai_review_comment
 
 
 def create_collective_invoice(client: TestClient, company_id: int) -> dict[str, object]:

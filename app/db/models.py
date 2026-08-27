@@ -105,6 +105,8 @@ class Invoice(Base):
     total_net: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     total_vat: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     total_gross: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     patient: Mapped[Patient] = relationship(back_populates="invoices")

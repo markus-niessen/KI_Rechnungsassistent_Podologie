@@ -80,6 +80,8 @@ class InvoiceRead(BaseModel):
     subtotal: Decimal = Field(validation_alias="total_net")
     tax_total: Decimal = Field(validation_alias="total_vat")
     total: Decimal = Field(validation_alias="total_gross")
+    source_text: str | None
+    ai_review_comment: str | None
     paid_amount: Decimal
     remaining_amount: Decimal
     payment_status: Literal["OPEN", "PARTIALLY_PAID", "PAID"]
