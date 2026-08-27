@@ -9,6 +9,7 @@ from app.routes.services import router as services_router
 from app.routes.business_profiles import router as business_profiles_router
 from app.routes.invoices import router as invoices_router
 from app.routes.payments import router as payments_router
+from app.routes.ai import router as ai_router
 
 app = FastAPI(title=get_settings().app_name)
 
@@ -18,6 +19,7 @@ app.include_router(services_router)
 app.include_router(business_profiles_router)
 app.include_router(invoices_router)
 app.include_router(payments_router)
+app.include_router(ai_router)
 
 
 @app.get("/health", tags=["system"])
