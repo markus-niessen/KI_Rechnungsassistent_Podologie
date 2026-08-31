@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.schemas.ai import NewPatientData, ServiceCandidateResolution, ValidatedCaseResolution
+
 
 DocumentType = Literal["INVOICE", "COLLECTIVE_INVOICE", "RECEIPT"]
 
@@ -72,6 +74,7 @@ class InvoiceBusinessProfileRead(BaseModel):
 class InvoiceRead(BaseModel):
     id: int
     company_id: int = Field(validation_alias="business_profile_id")
+    patient_id: int | None
     document_type: str
     status: str
     invoice_number: str | None
@@ -82,6 +85,10 @@ class InvoiceRead(BaseModel):
     total: Decimal = Field(validation_alias="total_gross")
     source_text: str | None
     ai_review_comment: str | None
+    new_patient_data: NewPatientData | None
+    patient_resolution_required: bool
+    unresolved_items: list[ServiceCandidateResolution]
+    ready_for_finalization: bool
     paid_amount: Decimal
     remaining_amount: Decimal
     payment_status: Literal["OPEN", "PARTIALLY_PAID", "PAID"]
@@ -95,3 +102,8 @@ class InvoiceRead(BaseModel):
     @property
     def item_count(self) -> int:
         return len(self.items)
+
+
+class AIDraftCreateResponse(BaseModel):
+    invoice: InvoiceRead
+    matching: ValidatedCaseResolution

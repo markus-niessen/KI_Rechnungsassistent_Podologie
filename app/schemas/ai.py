@@ -33,6 +33,23 @@ class AIValidateRequest(BaseModel):
         return value
 
 
+class AIDraftCreateRequest(BaseModel):
+    text: str
+    company_id: int
+    invoice_date: date
+    due_date: date
+    document_type: Literal["INVOICE", "COLLECTIVE_INVOICE", "RECEIPT"] = "INVOICE"
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("text")
+    @classmethod
+    def require_non_empty_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be empty")
+        return value
+
+
 AIReviewStatus = Literal["ok", "correction_required", "manual_review_required"]
 AIReviewIssueType = Literal["omission", "invention", "contradiction", "incorrect_value", "ambiguity"]
 

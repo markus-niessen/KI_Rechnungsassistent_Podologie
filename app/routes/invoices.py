@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -81,10 +81,60 @@ def _set_service_snapshot(db: Session, item: InvoiceItem, service_id: int) -> No
     item.line_gross = money(item.line_net + item.line_vat)
 
 
-def _recalculate_and_commit(db: Session, invoice: Invoice) -> None:
+def create_draft_invoice(
+    db: Session,
+    invoice_data: InvoiceCreate,
+    *,
+    patient_id: int | None = None,
+    source_text: str | None = None,
+    ai_review_comment: str | None = None,
+    new_patient_data: dict[str, Any] | None = None,
+    patient_resolution_required: bool = False,
+    unresolved_items: list[dict[str, Any]] | None = None,
+) -> Invoice:
+    """Create an unsaved-to-finalization DRAFT using the standard invoice defaults."""
+    business_profile = _get_active_business_profile_or_error(db, invoice_data.company_id)
+    invoice = Invoice(
+        business_profile_id=business_profile.id,
+        patient_id=patient_id,
+        document_type=invoice_data.document_type,
+        status="DRAFT",
+        invoice_number=None,
+        invoice_date=invoice_data.invoice_date,
+        due_date=invoice_data.due_date,
+        total_net=money(0),
+        total_vat=money(0),
+        total_gross=money(0),
+        source_text=source_text,
+        ai_review_comment=ai_review_comment,
+        new_patient_data=new_patient_data,
+        patient_resolution_required=patient_resolution_required,
+        unresolved_items=unresolved_items or [],
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice
+
+
+def add_draft_invoice_item(db: Session, invoice: Invoice, item_data: InvoiceItemCreate) -> InvoiceItem:
+    """Attach one regular DRAFT item with the existing patient and service snapshots."""
+    _require_draft(invoice)
+    item = InvoiceItem(invoice=invoice, quantity=item_data.quantity)
+    db.add(item)
+    with db.no_autoflush:
+        _set_service_snapshot(db, item, item_data.service_id)
+        _set_patient_snapshot(db, item, item_data.patient_id)
+    return item
+
+
+def recalculate_draft_invoice(db: Session, invoice: Invoice) -> None:
     db.flush()
     db.refresh(invoice, attribute_names=["invoice_items"])
     calculate_invoice_totals(invoice)
+
+
+def _recalculate_and_commit(db: Session, invoice: Invoice) -> None:
+    recalculate_draft_invoice(db, invoice)
     db.commit()
     db.refresh(invoice, attribute_names=["invoice_items"])
 
@@ -254,19 +304,7 @@ def _validate_invoice_for_pdf(db: Session, invoice: Invoice) -> Patient:
 
 @router.post("", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
 def create_invoice(invoice_data: InvoiceCreate, db: DatabaseSession) -> Invoice:
-    business_profile = _get_active_business_profile_or_error(db, invoice_data.company_id)
-    invoice = Invoice(
-        business_profile_id=business_profile.id,
-        document_type=invoice_data.document_type,
-        status="DRAFT",
-        invoice_number=None,
-        invoice_date=invoice_data.invoice_date,
-        due_date=invoice_data.due_date,
-        total_net=money(0),
-        total_vat=money(0),
-        total_gross=money(0),
-    )
-    db.add(invoice)
+    invoice = create_draft_invoice(db, invoice_data)
     db.commit()
     return _get_invoice_or_404(db, invoice.id)
 
@@ -330,12 +368,7 @@ def list_invoice_items(invoice_id: int, db: DatabaseSession) -> list[InvoiceItem
 @router.post("/{invoice_id}/items", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
 def add_invoice_item(invoice_id: int, item_data: InvoiceItemCreate, db: DatabaseSession) -> Invoice:
     invoice = _get_invoice_or_404(db, invoice_id)
-    _require_draft(invoice)
-    item = InvoiceItem(invoice=invoice, quantity=item_data.quantity)
-    db.add(item)
-    with db.no_autoflush:
-        _set_service_snapshot(db, item, item_data.service_id)
-        _set_patient_snapshot(db, item, item_data.patient_id)
+    add_draft_invoice_item(db, invoice, item_data)
     _recalculate_and_commit(db, invoice)
     return _get_invoice_or_404(db, invoice.id)
 

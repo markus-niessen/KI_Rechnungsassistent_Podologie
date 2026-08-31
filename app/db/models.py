@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -107,6 +108,9 @@ class Invoice(Base):
     total_gross: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_patient_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    patient_resolution_required: Mapped[bool] = mapped_column(default=False, nullable=False)
+    unresolved_items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     patient: Mapped[Patient] = relationship(back_populates="invoices")
@@ -131,6 +135,19 @@ class Invoice(Base):
         if self.remaining_amount == Decimal("0.00"):
             return "PAID"
         return "PARTIALLY_PAID"
+
+    @property
+    def ready_for_finalization(self) -> bool:
+        return (
+            self.status == "DRAFT"
+            and self.invoice_number is None
+            and self.patient_id is not None
+            and self.new_patient_data is None
+            and not self.patient_resolution_required
+            and not self.unresolved_items
+            and bool(self.invoice_items)
+            and self.ai_review_comment is None
+        )
 
 
 class InvoiceItem(Base):
