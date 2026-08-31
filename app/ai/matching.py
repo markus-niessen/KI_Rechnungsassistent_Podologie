@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Patient, Service
 from app.schemas.ai import (
+    NewPatientData,
     PatientCandidateResolution,
     PatientMatchCandidate,
     ServiceCandidateResolution,
@@ -19,6 +20,43 @@ def _normalized_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _extracted_value(data: dict[str, Any], *field_names: str) -> Any:
+    for field_name in field_names:
+        if field_name not in data or data[field_name] is None:
+            continue
+        value = data[field_name]
+        if isinstance(value, str):
+            value = _normalized_text(value)
+        if value is not None:
+            return value
+    return None
+
+
+def _new_patient_resolution(patient_data: dict[str, Any]) -> PatientCandidateResolution:
+    data = NewPatientData(
+        first_name=_extracted_value(patient_data, "vorname", "first_name"),
+        last_name=_extracted_value(patient_data, "nachname", "last_name"),
+        birth_date=_extracted_value(patient_data, "birth_date", "geburtsdatum"),
+        street=_extracted_value(patient_data, "street", "strasse", "straße"),
+        zip=_extracted_value(patient_data, "zip", "plz", "postal_code"),
+        city=_extracted_value(patient_data, "city", "ort"),
+    )
+    missing_fields = [
+        field_name
+        for field_name in ("birth_date", "street", "zip", "city")
+        if getattr(data, field_name) is None
+    ]
+    return PatientCandidateResolution(
+        status="new_patient",
+        first_name=data.first_name,
+        last_name=data.last_name,
+        source="ai_extraction",
+        data=data,
+        missing_fields=missing_fields,
+        warning="Kein aktiver Patient in der Datenbank gefunden. Patient kann neu angelegt werden.",
+    )
 
 
 def _patient_candidate(patient: Patient) -> PatientMatchCandidate:
@@ -139,13 +177,19 @@ def resolve_validated_case(db: Session, structured_case: dict[str, Any]) -> Vali
     warnings: list[str] = []
     patient_data = case.get("patient")
     patient_data = patient_data if isinstance(patient_data, dict) else {}
+    extracted_first_name = _extracted_value(patient_data, "vorname", "first_name")
+    extracted_last_name = _extracted_value(patient_data, "nachname", "last_name")
     patient_resolution = resolve_patient_candidates(
         db,
-        patient_data.get("vorname"),
-        patient_data.get("nachname"),
+        extracted_first_name,
+        extracted_last_name,
     )
     if patient_resolution.status == "not_found":
-        warnings.append("No active patient matched the extracted first and last name.")
+        if patient_resolution.first_name is not None and patient_resolution.last_name is not None:
+            patient_resolution = _new_patient_resolution(patient_data)
+            warnings.append(str(patient_resolution.warning))
+        else:
+            warnings.append("No active patient matched the extracted first and last name.")
     elif patient_resolution.status == "ambiguous":
         warnings.append("Multiple active patients matched the extracted first and last name.")
 

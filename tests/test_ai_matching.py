@@ -133,6 +133,64 @@ def test_validated_case_is_fully_resolved_when_patient_and_all_items_match(db: S
     assert result.warnings == []
 
 
+def test_validated_case_keeps_an_unknown_patient_as_unpersisted_ai_data(db: Session) -> None:
+    service = _service("Fußpflege groß")
+    db.add(service)
+    db.commit()
+    patient_count_before = db.query(Patient).count()
+
+    result = resolve_validated_case(
+        db,
+        {
+            "patient": {"vorname": "Anna", "nachname": "Müller"},
+            "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+        },
+    )
+
+    assert result.patient.status == "new_patient"
+    assert result.patient.patient_id is None
+    assert result.patient.source == "ai_extraction"
+    assert result.patient.data is not None
+    assert result.patient.data.first_name == "Anna"
+    assert result.patient.data.last_name == "Müller"
+    assert result.patient.data.birth_date is None
+    assert result.patient.data.street is None
+    assert result.patient.data.zip is None
+    assert result.patient.data.city is None
+    assert result.patient.missing_fields == ["birth_date", "street", "zip", "city"]
+    assert result.patient.warning is not None
+    assert result.all_resolved is False
+    assert db.query(Patient).count() == patient_count_before
+
+
+def test_unpersisted_new_patient_data_uses_editable_patient_model_field_names(db: Session) -> None:
+    result = resolve_validated_case(
+        db,
+        {
+            "patient": {
+                "vorname": "Anna",
+                "nachname": "Müller",
+                "strasse": "Musterstraße 1",
+                "plz": "50667",
+                "ort": "Köln",
+            },
+            "positionen": [],
+        },
+    )
+
+    assert result.patient.status == "new_patient"
+    assert result.patient.data is not None
+    assert result.patient.data.model_dump() == {
+        "first_name": "Anna",
+        "last_name": "Müller",
+        "birth_date": None,
+        "street": "Musterstraße 1",
+        "zip": "50667",
+        "city": "Köln",
+    }
+    assert db.query(Patient).count() == 0
+
+
 @pytest.mark.parametrize(
     "structured_case",
     [

@@ -65,6 +65,7 @@ class AIValidatedExtractionResponse(BaseModel):
 
 
 MatchStatus = Literal["matched", "not_found", "ambiguous"]
+PatientMatchStatus = Literal["matched", "not_found", "ambiguous", "new_patient"]
 
 
 class PatientMatchCandidate(BaseModel):
@@ -78,12 +79,27 @@ class PatientMatchCandidate(BaseModel):
     room: str | None
 
 
+class NewPatientData(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    birth_date: date | None = None
+    street: str | None = None
+    zip: str | None = None
+    city: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PatientCandidateResolution(BaseModel):
-    status: MatchStatus
+    status: PatientMatchStatus
     patient_id: int | None = None
     first_name: str | None = None
     last_name: str | None = None
     candidates: list[PatientMatchCandidate] = Field(default_factory=list)
+    source: Literal["ai_extraction"] | None = None
+    data: NewPatientData | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    warning: str | None = None
 
 
 class ServiceMatchCandidate(BaseModel):
