@@ -143,6 +143,12 @@ def test_ai_matching_creates_editable_draft_with_existing_patient_and_service(
     assert update_response.status_code == 200
     assert Decimal(str(update_response.json()["items"][0]["quantity"])) == Decimal("1.00")
 
+    finalization = client.post(f"/invoices/{invoice['id']}/finalize")
+    assert finalization.status_code == 200
+    assert finalization.json()["status"] == "FINAL"
+    assert finalization.json()["patient_id"] == patient["id"]
+    assert finalization.json()["items"][0]["patient_id"] == patient["id"]
+
 
 def test_ai_draft_keeps_new_patient_data_without_creating_a_patient(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -184,6 +190,60 @@ def test_ai_draft_keeps_new_patient_data_without_creating_a_patient(
         assert session.scalar(select(func.count(Patient.id))) == 0
 
 
+def test_ai_draft_creates_new_patient_only_when_finalized(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            {
+                "patient": {
+                    "vorname": "Anna",
+                    "nachname": "Müller",
+                    "street": "Beispielweg 2",
+                    "plz": "50667",
+                    "ort": "Köln",
+                },
+                "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+            },
+        ),
+    )
+
+    created = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Anna Müller")
+    ).json()["invoice"]
+    with Session(app.state.test_engine) as session:
+        assert session.scalar(select(func.count(Patient.id))) == 0
+
+    finalized_response = client.post(f"/invoices/{created['id']}/finalize")
+    finalized = finalized_response.json()
+
+    assert finalized_response.status_code == 200
+    assert finalized["status"] == "FINAL"
+    assert finalized["invoice_number"] == "TEST-RE-2026-000001"
+    assert finalized["new_patient_data"] is None
+    assert finalized["patient_id"] == finalized["items"][0]["patient_id"]
+    with Session(app.state.test_engine) as session:
+        patient = session.get(Patient, finalized["patient_id"])
+        assert patient is not None
+        assert patient.patient_nr == "P-000001"
+        assert patient.first_name == "Anna"
+        assert patient.last_name == "Müller"
+        assert patient.street == "Beispielweg 2"
+        assert patient.zip == "50667"
+        assert patient.city == "Köln"
+
+    assert client.post(f"/invoices/{created['id']}/finalize").status_code == 409
+    with Session(app.state.test_engine) as session:
+        assert session.scalar(select(func.count(Patient.id))) == 1
+
+
 def test_ai_draft_keeps_ambiguous_patient_unresolved_without_assignment(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -217,6 +277,9 @@ def test_ai_draft_keeps_ambiguous_patient_unresolved_without_assignment(
     assert payload["invoice"]["patient_resolution_required"] is True
     assert payload["invoice"]["ready_for_finalization"] is False
     assert payload["invoice"]["items"][0]["patient_id"] is None
+    finalization = client.post(f"/invoices/{payload['invoice']['id']}/finalize")
+    assert finalization.status_code == 422
+    assert finalization.json()["detail"] == "Invoice requires an unambiguous patient selection"
 
 
 @pytest.mark.parametrize("ambiguous", [False, True])
@@ -255,9 +318,12 @@ def test_ai_draft_keeps_unresolved_services_without_creating_invoice_items(
     assert invoice["items"] == []
     assert invoice["unresolved_items"][0]["status"] == expected_status
     assert invoice["ready_for_finalization"] is False
+    finalization = client.post(f"/invoices/{invoice['id']}/finalize")
+    assert finalization.status_code == 422
+    assert finalization.json()["detail"] == "Invoice contains unresolved service items"
 
 
-def test_new_patient_ai_draft_cannot_be_finalized_before_patient_creation_support_exists(
+def test_new_patient_ai_draft_with_missing_address_cannot_be_finalized(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.routes import ai as ai_routes
@@ -282,6 +348,52 @@ def test_new_patient_ai_draft_cannot_be_finalized_before_patient_creation_suppor
     finalization = client.post(f"/invoices/{created['invoice']['id']}/finalize")
 
     assert finalization.status_code == 422
+    assert finalization.json()["detail"] == "New patient requires a complete invoice address"
     with Session(app.state.test_engine) as session:
         assert session.scalar(select(func.count(Patient.id))) == 0
         assert session.get(Invoice, created["invoice"]["id"]).invoice_number is None
+
+
+def test_new_patient_creation_rolls_back_when_finalization_fails(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+    from app.routes import invoices as invoice_routes
+
+    business_profile = _business_profile(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            {
+                "patient": {
+                    "vorname": "Anna",
+                    "nachname": "Müller",
+                    "street": "Beispielweg 2",
+                    "plz": "50667",
+                    "ort": "Köln",
+                },
+                "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+            },
+        ),
+    )
+    created = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Anna Müller")
+    ).json()["invoice"]
+
+    def fail_finalization(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated finalization failure")
+
+    monkeypatch.setattr(invoice_routes, "finalize_invoice", fail_finalization)
+    with pytest.raises(RuntimeError, match="simulated finalization failure"):
+        client.post(f"/invoices/{created['id']}/finalize")
+
+    with Session(app.state.test_engine) as session:
+        assert session.scalar(select(func.count(Patient.id))) == 0
+        invoice = session.get(Invoice, created["id"])
+        assert invoice is not None
+        assert invoice.status == "DRAFT"
+        assert invoice.invoice_number is None
+        assert invoice.patient_id is None

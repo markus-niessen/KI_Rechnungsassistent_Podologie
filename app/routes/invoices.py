@@ -2,6 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -10,6 +11,7 @@ from app.db.session import get_db
 from app.girocode import build_epc_girocode_payload
 from app.invoice_logic import calculate_invoice_totals, finalize_invoice, money
 from app.invoice_pdf import render_invoice_pdf
+from app.routes.patients import create_patient_record
 from app.schemas.invoice import (
     InvoiceCreate,
     InvoiceItemCreate,
@@ -18,6 +20,7 @@ from app.schemas.invoice import (
     InvoiceRead,
     InvoiceUpdate,
 )
+from app.schemas.patient import PatientCreate
 
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -194,6 +197,52 @@ def _get_collective_invoice_recipient_or_error(db: Session, invoice: Invoice) ->
     return next(patient for patient in patients if patient is not None)
 
 
+def _validate_ai_draft_resolution(invoice: Invoice) -> None:
+    if invoice.patient_resolution_required:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice requires an unambiguous patient selection",
+        )
+    if invoice.unresolved_items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invoice contains unresolved service items",
+        )
+
+
+def _create_new_patient_for_finalization(db: Session, invoice: Invoice) -> None:
+    if invoice.new_patient_data is None:
+        return
+
+    try:
+        patient_data = PatientCreate.model_validate(invoice.new_patient_data)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New patient data is incomplete or invalid",
+        ) from error
+
+    if not _has_text(patient_data.first_name) or not _has_text(patient_data.last_name):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New patient requires first name and last name",
+        )
+    if invoice.document_type == "INVOICE" and not all(
+        _has_text(value) for value in (patient_data.street, patient_data.zip, patient_data.city)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New patient requires a complete invoice address",
+        )
+
+    patient = create_patient_record(db, patient_data)
+    invoice.patient_id = patient.id
+    for item in invoice.invoice_items:
+        if item.patient_id is None:
+            _set_patient_snapshot(db, item, patient.id)
+    invoice.new_patient_data = None
+
+
 def _validate_invoice_for_finalization(db: Session, invoice: Invoice) -> None:
     if not invoice.invoice_items:
         raise HTTPException(
@@ -342,9 +391,15 @@ def update_invoice(invoice_id: int, invoice_data: InvoiceUpdate, db: DatabaseSes
 def finalize_invoice_endpoint(invoice_id: int, db: DatabaseSession) -> Invoice:
     invoice = _get_invoice_or_404(db, invoice_id)
     _require_draft(invoice)
-    _validate_invoice_for_finalization(db, invoice)
-    finalize_invoice(db, invoice)
-    db.commit()
+    try:
+        _validate_ai_draft_resolution(invoice)
+        _create_new_patient_for_finalization(db, invoice)
+        _validate_invoice_for_finalization(db, invoice)
+        finalize_invoice(db, invoice)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return _get_invoice_or_404(db, invoice.id)
 
 

@@ -25,8 +25,8 @@ def _get_patient_or_404(db: Session, patient_id: int) -> Patient:
     return patient
 
 
-@router.post("", response_model=PatientRead, status_code=status.HTTP_201_CREATED)
-def create_patient(patient_data: PatientCreate, db: DatabaseSession) -> Patient:
+def create_patient_record(db: Session, patient_data: PatientCreate) -> Patient:
+    """Create a patient in the current transaction without committing it."""
     patient_values = patient_data.model_dump()
     if not patient_values["deceased"]:
         patient_values["death_date"] = None
@@ -36,6 +36,13 @@ def create_patient(patient_data: PatientCreate, db: DatabaseSession) -> Patient:
         active=not patient_data.deceased,
     )
     db.add(patient)
+    db.flush()
+    return patient
+
+
+@router.post("", response_model=PatientRead, status_code=status.HTTP_201_CREATED)
+def create_patient(patient_data: PatientCreate, db: DatabaseSession) -> Patient:
+    patient = create_patient_record(db, patient_data)
     db.commit()
     db.refresh(patient)
     return patient
