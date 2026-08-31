@@ -1,3 +1,5 @@
+from datetime import date
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -60,3 +62,50 @@ class AIValidatedExtractionResponse(BaseModel):
     ai_review_comment: str | None
 
     model_config = ConfigDict(extra="forbid")
+
+
+MatchStatus = Literal["matched", "not_found", "ambiguous"]
+
+
+class PatientMatchCandidate(BaseModel):
+    patient_id: int
+    patient_nr: str
+    first_name: str
+    last_name: str
+    birth_date: date | None
+    city: str | None
+    home_name: str | None
+    room: str | None
+
+
+class PatientCandidateResolution(BaseModel):
+    status: MatchStatus
+    patient_id: int | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    candidates: list[PatientMatchCandidate] = Field(default_factory=list)
+
+
+class ServiceMatchCandidate(BaseModel):
+    service_id: int
+    name: str
+    net_price: Decimal
+    vat_rate: Decimal
+
+
+class ServiceCandidateResolution(BaseModel):
+    input_name: str
+    status: MatchStatus
+    service_id: int | None = None
+    name: str | None = None
+    quantity: Decimal | None = None
+    net_price: Decimal | None = None
+    vat_rate: Decimal | None = None
+    candidates: list[ServiceMatchCandidate] = Field(default_factory=list)
+
+
+class ValidatedCaseResolution(BaseModel):
+    patient: PatientCandidateResolution
+    items: list[ServiceCandidateResolution] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    all_resolved: bool
