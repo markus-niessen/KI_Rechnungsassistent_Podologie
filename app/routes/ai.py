@@ -1,6 +1,9 @@
 from typing import Annotated
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.ai.ki1_extraction import AIConfigurationError, AIExtractionError, extract_treatment_text
@@ -10,12 +13,73 @@ from app.ai.orchestration import extract_and_validate
 from app.db.models import Invoice
 from app.db.session import get_db
 from app.routes.invoices import add_draft_invoice_item, create_draft_invoice, recalculate_draft_invoice
+from app.routes.payments import create_payment_record
 from app.schemas.ai import AIDraftCreateRequest, AIExtractRequest, AIReviewResult, AIValidateRequest, AIValidatedExtractionResponse
 from app.schemas.invoice import AIDraftCreateResponse, InvoiceCreate, InvoiceItemCreate, InvoiceRead
+from app.schemas.payment import PaymentCreate
 
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
+
+_DOCUMENT_TYPES = {
+    "rechnung": "INVOICE",
+    "quittung": "RECEIPT",
+    "sammelrechnung": "COLLECTIVE_INVOICE",
+}
+_PAYMENT_METHODS = {
+    "bar": "CASH",
+    "ueberweisung": "BANK_TRANSFER",
+}
+
+
+def _normalized_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _document_type_from_ai(structured_data: dict[str, object]) -> str | None:
+    document = structured_data.get("dokument")
+    if not isinstance(document, dict):
+        return None
+    return _DOCUMENT_TYPES.get(_normalized_text(document.get("typ")))
+
+
+def _payment_from_ai(structured_data: dict[str, object], invoice_id: int) -> tuple[PaymentCreate | None, str | None, str | None]:
+    payment = structured_data.get("zahlung")
+    if payment in (None, {}):
+        return None, None, None
+    if not isinstance(payment, dict):
+        return None, None, None
+
+    payment_method = _PAYMENT_METHODS.get(_normalized_text(payment.get("zahlungsart")))
+    amount = payment.get("betrag")
+    payment_date = payment.get("payment_date", payment.get("zahlungsdatum"))
+    if payment_method is None or amount is None or payment_date is None:
+        return None, "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt.", None
+    try:
+        payment_data = PaymentCreate(
+            invoice_id=invoice_id,
+            amount=amount,
+            payment_date=payment_date,
+            payment_method=payment_method,
+        )
+    except ValidationError:
+        return None, "KI-Zahlungsdaten sind ungültig; keine Zahlung wurde angelegt.", None
+
+    return payment_data, None, _normalized_text(payment.get("status"))
+
+
+def _payment_status_is_consistent(payment_status: str | None, amount: Decimal, total: Decimal) -> bool:
+    if payment_status is None:
+        return True
+    if payment_status == "teilzahlung":
+        return amount < total
+    if payment_status in {"bezahlt", "vollstaendig", "vollständig"}:
+        return amount == total
+    return False
 
 
 @router.post("/extract", response_model=dict)
@@ -87,7 +151,7 @@ def extract_and_create_draft(
         db,
         InvoiceCreate(
             company_id=draft_request.company_id,
-            document_type=draft_request.document_type,
+            document_type=_document_type_from_ai(structured_data) or draft_request.document_type,
             invoice_date=draft_request.invoice_date,
             due_date=draft_request.due_date,
         ),
@@ -111,6 +175,17 @@ def extract_and_create_draft(
             ),
         )
     recalculate_draft_invoice(db, invoice)
+    payment_data, payment_warning, payment_status = _payment_from_ai(structured_data, invoice.id)
+    if payment_warning is not None:
+        matching.warnings.append(payment_warning)
+    elif payment_data is not None:
+        if not _payment_status_is_consistent(payment_status, payment_data.amount, invoice.total_gross):
+            matching.warnings.append("KI-Zahlungsdaten sind widersprüchlich; keine Zahlung wurde angelegt.")
+        else:
+            try:
+                create_payment_record(db, payment_data)
+            except HTTPException:
+                matching.warnings.append("KI-Zahlung überschreitet den Rechnungsbetrag; keine Zahlung wurde angelegt.")
     db.commit()
 
     stored_invoice = db.get(Invoice, invoice.id)

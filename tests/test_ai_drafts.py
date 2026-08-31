@@ -97,6 +97,167 @@ def _draft_request(company_id: int, text: str) -> dict[str, object]:
     }
 
 
+def _matched_case(
+    *, document_type: str | None = None, payment: dict[str, object] | None = None
+) -> dict[str, object]:
+    case: dict[str, object] = {
+        "patient": {"vorname": "Peter", "nachname": "Wagner"},
+        "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+    }
+    if document_type is not None:
+        case["dokument"] = {"typ": document_type}
+    if payment is not None:
+        case["zahlung"] = payment
+    return case
+
+
+@pytest.mark.parametrize(
+    ("ai_document_type", "expected_document_type"),
+    [
+        ("rechnung", "INVOICE"),
+        ("quittung", "RECEIPT"),
+        ("sammelrechnung", "COLLECTIVE_INVOICE"),
+        (None, "INVOICE"),
+    ],
+)
+def test_ai_draft_uses_explicit_document_type_or_existing_default(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    ai_document_type: str | None,
+    expected_document_type: str,
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(source, _matched_case(document_type=ai_document_type)),
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+    )
+    invoice = response.json()["invoice"]
+
+    assert response.status_code == 201
+    assert invoice["document_type"] == expected_document_type
+
+
+def test_ai_document_type_remains_editable_on_draft(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(source, _matched_case(document_type="quittung")),
+    )
+    created = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+    ).json()["invoice"]
+
+    updated = client.patch(f"/invoices/{created['id']}", json={"document_type": "INVOICE"})
+
+    assert updated.status_code == 200
+    assert updated.json()["document_type"] == "INVOICE"
+
+
+@pytest.mark.parametrize(
+    ("ai_method", "expected_method"),
+    [("bar", "CASH"), ("ueberweisung", "BANK_TRANSFER")],
+)
+def test_ai_draft_creates_payment_only_from_complete_explicit_payment_data(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    ai_method: str,
+    expected_method: str,
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            _matched_case(
+                payment={
+                    "zahlungsart": ai_method,
+                    "betrag": "20.00",
+                    "payment_date": "2026-08-19",
+                    "status": "teilzahlung",
+                }
+            ),
+        ),
+    )
+
+    created = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+    ).json()["invoice"]
+    payments = client.get(f"/invoices/{created['id']}/payments").json()
+
+    assert len(payments) == 1
+    assert payments[0]["payment_method"] == expected_method
+    assert Decimal(str(payments[0]["amount"])) == Decimal("20.00")
+    assert payments[0]["payment_date"] == "2026-08-19"
+
+
+@pytest.mark.parametrize(
+    ("payment", "warning"),
+    [
+        ({"zahlungsart": "bar"}, "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt."),
+        (
+            {
+                "zahlungsart": "bar",
+                "betrag": "69.02",
+                "payment_date": "2026-08-19",
+                "status": "teilzahlung",
+            },
+            "KI-Zahlungsdaten sind widersprüchlich; keine Zahlung wurde angelegt.",
+        ),
+        (None, None),
+    ],
+)
+def test_ai_draft_does_not_invent_incomplete_or_inconsistent_payments(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    payment: dict[str, object] | None,
+    warning: str | None,
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(source, _matched_case(payment=payment)),
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+    )
+    payload = response.json()
+    payments = client.get(f"/invoices/{payload['invoice']['id']}/payments").json()
+
+    assert response.status_code == 201
+    assert payments == []
+    if warning is None:
+        assert payload["matching"]["warnings"] == []
+    else:
+        assert warning in payload["matching"]["warnings"]
+
+
 def test_ai_matching_creates_editable_draft_with_existing_patient_and_service(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -45,12 +45,19 @@ def _validate_payment_total(db: Session, invoice: Invoice, amount: Decimal, excl
         )
 
 
-@router.post("/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
-def create_payment(payment_data: PaymentCreate, db: DatabaseSession) -> Payment:
+def create_payment_record(db: Session, payment_data: PaymentCreate) -> Payment:
+    """Create a payment in the current transaction without committing it."""
     invoice = _get_invoice_or_404(db, payment_data.invoice_id)
     _validate_payment_total(db, invoice, payment_data.amount)
     payment = Payment(**payment_data.model_dump())
     db.add(payment)
+    db.flush()
+    return payment
+
+
+@router.post("/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
+def create_payment(payment_data: PaymentCreate, db: DatabaseSession) -> Payment:
+    payment = create_payment_record(db, payment_data)
     db.commit()
     db.refresh(payment)
     return payment
