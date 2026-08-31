@@ -51,6 +51,20 @@ def _extraction(payment: str | None = None) -> dict[str, object]:
     return data
 
 
+def _position(name: str, position_type: str, **additional: object) -> dict[str, object]:
+    return {"bezeichnung": name, "typ": position_type, "menge": 1, **additional}
+
+
+def _validation_data(source_text: str, positions: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "original_text": source_text,
+        "strukturierte_daten": {
+            "patient": {"vorname": "Peter", "nachname": "Wagner"},
+            "positionen": positions,
+        },
+    }
+
+
 def test_ai_extract_returns_structured_result_with_one_mocked_openai_call(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -123,6 +137,134 @@ def test_validated_endpoint_returns_source_data_and_review(
     assert response.json()["manual_review_required"] is False
 
 
+@pytest.mark.parametrize(
+    ("source_text", "data", "review", "expected_status", "expected_issue_type"),
+    [
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt.",
+            _validation_data(
+                "Peter Wagner, Fußpflege groß durchgeführt.",
+                [_position("Fußpflege klein", "leistung")],
+            ),
+            {
+                "status": "correction_required",
+                "issues": [
+                    {
+                        "field": "strukturierte_daten.positionen[0].bezeichnung",
+                        "type": "contradiction",
+                        "message": "Der Text nennt Fußpflege groß, nicht klein.",
+                    }
+                ],
+                "summary": "Die Leistung wurde falsch übernommen.",
+            },
+            "correction_required",
+            "contradiction",
+        ),
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt.",
+            _validation_data(
+                "Peter Wagner, Fußpflege groß durchgeführt.",
+                [_position("Fußpflege groß", "leistung"), _position("Spirularin Gel", "produkt")],
+            ),
+            {
+                "status": "correction_required",
+                "issues": [
+                    {
+                        "field": "strukturierte_daten.positionen[1]",
+                        "type": "invention",
+                        "message": "Spirularin Gel kommt im Text nicht vor.",
+                    }
+                ],
+                "summary": "Eine Position wurde erfunden.",
+            },
+            "correction_required",
+            "invention",
+        ),
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt und Mehrarbeit.",
+            _validation_data(
+                "Peter Wagner, Fußpflege groß durchgeführt und Mehrarbeit.",
+                [_position("Fußpflege groß", "leistung")],
+            ),
+            {
+                "status": "correction_required",
+                "issues": [
+                    {
+                        "field": "strukturierte_daten.positionen",
+                        "type": "omission",
+                        "message": "Mehrarbeit fehlt.",
+                    }
+                ],
+                "summary": "Eine Position fehlt.",
+            },
+            "correction_required",
+            "omission",
+        ),
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt und Mehrarbeit.",
+            _validation_data(
+                "Peter Wagner, Fußpflege groß durchgeführt und Mehrarbeit.",
+                [_position("Fußpflege groß", "leistung"), _position("Mehrarbeit", "zusatzleistung")],
+            ),
+            {"status": "ok", "issues": [], "summary": "null"},
+            "ok",
+            None,
+        ),
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt, Mehrarbeit wegen starker Hornhaut und Spirularin Gel mitgegeben.",
+            _validation_data(
+                "Peter Wagner, Fußpflege groß durchgeführt, Mehrarbeit wegen starker Hornhaut und Spirularin Gel mitgegeben.",
+                [
+                    _position("Fußpflege groß", "leistung"),
+                    _position("Mehrarbeit", "zusatzleistung"),
+                    _position("Spirularin Gel", "produkt", verwendungszweck="abgabe"),
+                ],
+            ),
+            {"status": "ok", "issues": [], "summary": None},
+            "ok",
+            None,
+        ),
+    ],
+)
+def test_ai_validate_endpoint_checks_supplied_ki1_output_without_running_ki1(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    source_text: str,
+    data: dict[str, object],
+    review: dict[str, object],
+    expected_status: str,
+    expected_issue_type: str | None,
+) -> None:
+    fake_client = FakeOpenAIClient([json.dumps(review, ensure_ascii=False)])
+    monkeypatch.setattr(ki2_validation, "_get_openai_client", lambda: fake_client)
+    monkeypatch.setattr(
+        ki1_extraction,
+        "_get_openai_client",
+        lambda: pytest.fail("/ai/validate must not call KI_1"),
+    )
+
+    response = client.post("/ai/validate", json={"text": source_text, "data": data})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == expected_status
+    assert len(fake_client.responses.calls) == 1
+    assert fake_client.responses.calls[0]["model"] == "gpt-4o-mini"
+    if expected_issue_type is None:
+        assert response.json()["issues"] == []
+        assert response.json()["summary"] is None
+    else:
+        assert response.json()["issues"][0]["type"] == expected_issue_type
+
+
+def test_ai_validate_endpoint_rejects_unknown_fields(client: TestClient) -> None:
+    response = client.post(
+        "/ai/validate",
+        json={"text": "Behandlung", "data": {}, "invoice_id": 1},
+    )
+
+    assert response.status_code == 422
+
+
 def test_ki1_correction_is_rechecked_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
     source_text = "Peter Wagner Fußpflege groß durchgeführt und bar bezahlt."
     fake_client = _mock_openai(
@@ -184,17 +326,62 @@ def test_second_failed_review_requires_manual_review_without_third_ki1_call(
     assert len(fake_client.responses.calls) == 4
 
 
-def test_ki2_review_represents_omitted_service(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("source_text", "positions"),
+    [
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt. Mehrarbeit wegen starker Hornhaut.",
+            [_position("Fußpflege groß", "leistung"), _position("Mehrarbeit", "zusatzleistung")],
+        ),
+        (
+            "Peter Wagner, Fußpflege groß durchgeführt, Mehrarbeit wegen starker Hornhaut und Spirularin Gel mitgegeben.",
+            [
+                _position("Fußpflege groß", "leistung"),
+                _position("Mehrarbeit", "zusatzleistung"),
+                _position("Spirularin Gel", "produkt", verwendungszweck="abgabe"),
+            ],
+        ),
+    ],
+)
+def test_ki2_accepts_multiple_textually_covered_positions(
+    monkeypatch: pytest.MonkeyPatch, source_text: str, positions: list[dict[str, object]]
+) -> None:
+    extraction = {"original_text": source_text, "strukturierte_daten": {"positionen": positions}}
+    fake_client = _mock_openai(
+        monkeypatch,
+        [extraction, {"status": "ok", "issues": [], "summary": None}],
+    )
+
+    result = extract_and_validate(source_text)
+
+    assert result.data == extraction
+    assert result.validation.status == "ok"
+    assert result.correction_attempted is False
+    assert len(fake_client.responses.calls) == 2
+
+
+def test_ki2_review_flags_an_actual_missing_position(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_client = _mock_openai(
         monkeypatch,
         [
-            {"original_text": "Peter", "strukturierte_daten": {"positionen": ["Fußpflege groß"]}},
+            {
+                "original_text": "Peter",
+                "strukturierte_daten": {"positionen": [_position("Fußpflege groß", "leistung")]},
+            },
             {
                 "status": "correction_required",
                 "issues": [{"field": "positionen", "type": "omission", "message": "Mehrarbeit fehlt."}],
                 "summary": "Eine Leistung fehlt.",
             },
-            {"original_text": "Peter", "strukturierte_daten": {"positionen": ["Fußpflege groß", "Mehrarbeit"]}},
+            {
+                "original_text": "Peter",
+                "strukturierte_daten": {
+                    "positionen": [
+                        _position("Fußpflege groß", "leistung"),
+                        _position("Mehrarbeit", "zusatzleistung"),
+                    ]
+                },
+            },
             {"status": "ok", "issues": [], "summary": None},
         ],
     )
@@ -203,6 +390,52 @@ def test_ki2_review_represents_omitted_service(monkeypatch: pytest.MonkeyPatch) 
 
     assert result.correction_attempted is True
     assert "Mehrarbeit" in str(fake_client.responses.calls[2]["input"])
+
+
+def test_ki2_review_flags_an_invented_additional_position(monkeypatch: pytest.MonkeyPatch) -> None:
+    source_text = "Peter Wagner, Fußpflege groß durchgeführt und Mehrarbeit wegen starker Hornhaut."
+    fake_client = _mock_openai(
+        monkeypatch,
+        [
+            {
+                "original_text": source_text,
+                "strukturierte_daten": {
+                    "positionen": [
+                        _position("Fußpflege groß", "leistung"),
+                        _position("Mehrarbeit", "zusatzleistung"),
+                        _position("Nicht genanntes Produkt", "produkt"),
+                    ]
+                },
+            },
+            {
+                "status": "correction_required",
+                "issues": [
+                    {
+                        "field": "strukturierte_daten.positionen[2]",
+                        "type": "invention",
+                        "message": "Das Produkt ist im Originaltext nicht genannt.",
+                    }
+                ],
+                "summary": "Eine Position wurde erfunden.",
+            },
+            {
+                "original_text": source_text,
+                "strukturierte_daten": {
+                    "positionen": [
+                        _position("Fußpflege groß", "leistung"),
+                        _position("Mehrarbeit", "zusatzleistung"),
+                    ]
+                },
+            },
+            {"status": "ok", "issues": [], "summary": None},
+        ],
+    )
+
+    result = extract_and_validate(source_text)
+
+    assert result.correction_attempted is True
+    assert result.validation.status == "ok"
+    assert "Nicht genanntes Produkt" in str(fake_client.responses.calls[2]["input"])
 
 
 def test_ki2_review_represents_an_invented_payment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,6 +464,8 @@ def test_ki2_prompt_is_zero_shot_and_technical_errors_are_not_manual_reviews(
 ) -> None:
     assert "BEISPIEL 1" in SYSTEM_PROMPT
     assert "BEISPIEL 1" not in KI2_SYSTEM_PROMPT
+    assert "Bewerte keine Abrechnungslogik." in KI2_SYSTEM_PROMPT
+    assert "zusammengefasst oder getrennt" in KI2_SYSTEM_PROMPT
 
     fake_client = FakeOpenAIClient([json.dumps(_extraction()), "not valid json"])
     monkeypatch.setattr(ki1_extraction, "_get_openai_client", lambda: fake_client)

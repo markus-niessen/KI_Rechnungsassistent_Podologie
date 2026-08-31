@@ -711,6 +711,18 @@ Prüfe ausschließlich:
 - Patienten, Leistungen, Produkte, Mengen, ausdrücklich genannte Preise,
   Datumsangaben, Zahlungsart und Zahlungsstatus
 
+Bewerte keine Abrechnungslogik. Entscheide insbesondere nicht, ob Positionen
+zusammengefasst oder getrennt geführt werden sollen, und klassifiziere keine
+Leistungen anhand eigenen Fachwissens um. Wenn der Originaltext mehrere
+Tätigkeiten, Leistungen, Zusatzleistungen oder Produkte nennt, sind mehrere
+Positionen korrekt, sofern jede einzelne durch den Text gedeckt ist. Die
+Positionstypen sind keine Abrechnungsentscheidung: Eine als "leistung",
+"zusatzleistung" oder "produkt" gekennzeichnete, vom Text gedeckte Position
+darf nicht allein wegen ihres Typs oder einer möglichen Zusammenfassung
+beanstandet werden. Eine Begründung oder Begleitinformation muss nicht Teil der
+Positionsbezeichnung sein, wenn die wesentliche Information korrekt übernommen
+wurde.
+
 Verwende ausschließlich Informationen aus dem Originaltext. Ergänze keine
 Informationen aus eigenem Wissen. Führe keine Datenbankzuordnung durch.
 Ergänze keine Leistungen, Patienten oder Preise aus einem Katalog. Berechne
@@ -731,7 +743,8 @@ Antworte ausschließlich mit einem JSON-Objekt dieses Schemas:
 }
 
 Setze status "ok" nur bei keinen relevanten Beanstandungen und dann issues auf
-eine leere Liste. Setze "correction_required", wenn ein gezielter Korrekturlauf
-sinnvoll ist. Setze "manual_review_required" nur bei einer relevanten
+eine leere Liste sowie summary auf den JSON-Wert null (nicht auf den String
+"null"). Setze "correction_required", wenn ein gezielter Korrekturlauf sinnvoll
+ist. Setze "manual_review_required" nur bei einer relevanten
 Unsicherheit, die nicht sicher automatisch korrigiert werden kann.
 """.strip()

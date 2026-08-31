@@ -33,6 +33,9 @@ def _parse_review_output(text: str) -> AIReviewResult:
         cleaned = cleaned[:-3]
     try:
         result = json.loads(cleaned.strip())
+        if isinstance(result, dict) and isinstance(result.get("summary"), str):
+            if result["summary"].strip().lower() == "null":
+                result["summary"] = None
         return AIReviewResult.model_validate(result)
     except (json.JSONDecodeError, ValidationError) as error:
         raise AIValidationError("KI 2 returned invalid structured validation") from error

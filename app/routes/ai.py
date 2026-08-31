@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.ai.ki1_extraction import AIConfigurationError, AIExtractionError, extract_treatment_text
-from app.ai.ki2_validation import AIValidationError
+from app.ai.ki2_validation import AIValidationError, validate_ki1_result
 from app.ai.orchestration import extract_and_validate
 from app.db.models import Invoice
 from app.db.session import get_db
-from app.schemas.ai import AIExtractRequest, AIValidatedExtractionResponse
+from app.schemas.ai import AIExtractRequest, AIReviewResult, AIValidateRequest, AIValidatedExtractionResponse
 
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -30,6 +30,22 @@ def extract_text(extraction_request: AIExtractRequest) -> dict:
             detail="KI 1 extraction failed",
         ) from error
     return result
+
+
+@router.post("/validate", response_model=AIReviewResult)
+def validate_text(validation_request: AIValidateRequest) -> AIReviewResult:
+    try:
+        return validate_ki1_result(validation_request.text, validation_request.data)
+    except AIConfigurationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenAI API key is not configured",
+        ) from error
+    except AIValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="KI 2 validation failed",
+        ) from error
 
 
 @router.post("/extract-and-validate", response_model=AIValidatedExtractionResponse)
