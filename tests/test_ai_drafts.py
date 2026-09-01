@@ -170,14 +170,18 @@ def test_ai_document_type_remains_editable_on_draft(
 
 
 @pytest.mark.parametrize(
-    ("ai_method", "expected_method"),
-    [("bar", "CASH"), ("ueberweisung", "BANK_TRANSFER")],
+    ("ai_method", "expected_method", "text"),
+    [
+        ("bar", "CASH", "Peter Wagner, 20 Euro bar bezahlt."),
+        ("ueberweisung", "BANK_TRANSFER", "Peter Wagner, 20 Euro per Überweisung bezahlt."),
+    ],
 )
-def test_ai_draft_creates_payment_only_from_complete_explicit_payment_data(
+def test_ai_draft_uses_invoice_date_for_confirmed_payment_without_explicit_payment_date(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     ai_method: str,
     expected_method: str,
+    text: str,
 ) -> None:
     from app.routes import ai as ai_routes
 
@@ -193,15 +197,13 @@ def test_ai_draft_creates_payment_only_from_complete_explicit_payment_data(
                 payment={
                     "zahlungsart": ai_method,
                     "betrag": "20.00",
-                    "payment_date": "2026-08-19",
-                    "status": "teilzahlung",
                 }
             ),
         ),
     )
 
     created = client.post(
-        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), text)
     ).json()["invoice"]
     payments = client.get(f"/invoices/{created['id']}/payments").json()
 
@@ -211,10 +213,52 @@ def test_ai_draft_creates_payment_only_from_complete_explicit_payment_data(
     assert payments[0]["payment_date"] == "2026-08-19"
 
 
+def test_ai_draft_keeps_explicit_payment_date(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            _matched_case(
+                payment={
+                    "zahlungsart": "bar",
+                    "betrag": "20.00",
+                    "payment_date": "2026-08-18",
+                    "status": "teilzahlung",
+                }
+            ),
+        ),
+    )
+
+    created = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(int(business_profile["id"]), "Peter Wagner, 20 Euro bar bezahlt."),
+    ).json()["invoice"]
+    payments = client.get(f"/invoices/{created['id']}/payments").json()
+
+    assert payments[0]["payment_date"] == "2026-08-18"
+
+
 @pytest.mark.parametrize(
-    ("payment", "warning"),
+    ("payment", "text", "warning"),
     [
-        ({"zahlungsart": "bar"}, "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt."),
+        (
+            {"zahlungsart": "bar"},
+            "Peter Wagner, bar bezahlt.",
+            "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt.",
+        ),
+        (
+            {"betrag": "20.00"},
+            "Peter Wagner, 20 Euro bar bezahlt.",
+            "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt.",
+        ),
         (
             {
                 "zahlungsart": "bar",
@@ -222,15 +266,22 @@ def test_ai_draft_creates_payment_only_from_complete_explicit_payment_data(
                 "payment_date": "2026-08-19",
                 "status": "teilzahlung",
             },
+            "Peter Wagner, 69,02 Euro bar bezahlt.",
             "KI-Zahlungsdaten sind widersprüchlich; keine Zahlung wurde angelegt.",
         ),
-        (None, None),
+        (
+            {"zahlungsart": "ueberweisung", "betrag": "20.00"},
+            "Peter Wagner möchte 20 Euro überweisen.",
+            "KI-Zahlung ist nicht eindeutig als erfolgt erkannt; keine Zahlung wurde angelegt.",
+        ),
+        (None, "Peter Wagner, Fußpflege groß durchgeführt.", None),
     ],
 )
 def test_ai_draft_does_not_invent_incomplete_or_inconsistent_payments(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     payment: dict[str, object] | None,
+    text: str,
     warning: str | None,
 ) -> None:
     from app.routes import ai as ai_routes
@@ -245,7 +296,7 @@ def test_ai_draft_does_not_invent_incomplete_or_inconsistent_payments(
     )
 
     response = client.post(
-        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), text)
     )
     payload = response.json()
     payments = client.get(f"/invoices/{payload['invoice']['id']}/payments").json()
@@ -256,6 +307,35 @@ def test_ai_draft_does_not_invent_incomplete_or_inconsistent_payments(
         assert payload["matching"]["warnings"] == []
     else:
         assert warning in payload["matching"]["warnings"]
+
+
+def test_ai_draft_does_not_create_overpayment(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client)
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            _matched_case(
+                payment={"zahlungsart": "bar", "betrag": "70.00"}
+            ),
+        ),
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(int(business_profile["id"]), "Peter Wagner, 70 Euro bar bezahlt."),
+    )
+    payload = response.json()
+    payments = client.get(f"/invoices/{payload['invoice']['id']}/payments").json()
+
+    assert response.status_code == 201
+    assert payments == []
+    assert "KI-Zahlung überschreitet den Rechnungsbetrag; keine Zahlung wurde angelegt." in payload["matching"]["warnings"]
 
 
 def test_ai_matching_creates_editable_draft_with_existing_patient_and_service(

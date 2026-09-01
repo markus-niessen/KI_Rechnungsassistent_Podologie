@@ -1,5 +1,6 @@
 from typing import Annotated
 
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -47,7 +48,31 @@ def _document_type_from_ai(structured_data: dict[str, object]) -> str | None:
     return _DOCUMENT_TYPES.get(_normalized_text(document.get("typ")))
 
 
-def _payment_from_ai(structured_data: dict[str, object], invoice_id: int) -> tuple[PaymentCreate | None, str | None, str | None]:
+def _payment_is_confirmed(source_text: str, payment_method: str) -> bool:
+    text = source_text.casefold()
+    if payment_method == "CASH":
+        return any(
+            phrase in text
+            for phrase in ("bar bezahlt", "bar gezahlt", "bar erhalten", "in bar bezahlt", "in bar gezahlt")
+        )
+    return any(
+        phrase in text
+        for phrase in (
+            "überwiesen",
+            "ueberwiesen",
+            "überweisung erfolgt",
+            "ueberweisung erfolgt",
+            "per überweisung bezahlt",
+            "per ueberweisung bezahlt",
+            "zahlung per überweisung",
+            "zahlung per ueberweisung",
+        )
+    )
+
+
+def _payment_from_ai(
+    structured_data: dict[str, object], invoice_id: int, invoice_date: date, source_text: str
+) -> tuple[PaymentCreate | None, str | None, str | None]:
     payment = structured_data.get("zahlung")
     if payment in (None, {}):
         return None, None, None
@@ -56,9 +81,12 @@ def _payment_from_ai(structured_data: dict[str, object], invoice_id: int) -> tup
 
     payment_method = _PAYMENT_METHODS.get(_normalized_text(payment.get("zahlungsart")))
     amount = payment.get("betrag")
-    payment_date = payment.get("payment_date", payment.get("zahlungsdatum"))
-    if payment_method is None or amount is None or payment_date is None:
+    payment_status = _normalized_text(payment.get("status"))
+    if payment_method is None or amount is None:
         return None, "KI-Zahlungsdaten sind unvollständig; keine Zahlung wurde angelegt.", None
+    if not _payment_is_confirmed(source_text, payment_method):
+        return None, "KI-Zahlung ist nicht eindeutig als erfolgt erkannt; keine Zahlung wurde angelegt.", None
+    payment_date = payment.get("payment_date", payment.get("zahlungsdatum", invoice_date))
     try:
         payment_data = PaymentCreate(
             invoice_id=invoice_id,
@@ -69,7 +97,7 @@ def _payment_from_ai(structured_data: dict[str, object], invoice_id: int) -> tup
     except ValidationError:
         return None, "KI-Zahlungsdaten sind ungültig; keine Zahlung wurde angelegt.", None
 
-    return payment_data, None, _normalized_text(payment.get("status"))
+    return payment_data, None, payment_status
 
 
 def _payment_status_is_consistent(payment_status: str | None, amount: Decimal, total: Decimal) -> bool:
@@ -175,7 +203,9 @@ def extract_and_create_draft(
             ),
         )
     recalculate_draft_invoice(db, invoice)
-    payment_data, payment_warning, payment_status = _payment_from_ai(structured_data, invoice.id)
+    payment_data, payment_warning, payment_status = _payment_from_ai(
+        structured_data, invoice.id, invoice.invoice_date, ai_result.source_text
+    )
     if payment_warning is not None:
         matching.warnings.append(payment_warning)
     elif payment_data is not None:
