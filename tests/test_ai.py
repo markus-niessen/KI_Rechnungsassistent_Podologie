@@ -84,6 +84,44 @@ def test_ai_extract_returns_structured_result_with_one_mocked_openai_call(
     }
 
 
+@pytest.mark.parametrize(
+    ("text", "patient"),
+    [
+        (
+            "Keller aus dem Seniorenzentrum Sonnenhof, Fußpflege groß durchgeführt.",
+            {"nachname": "Keller", "heim": "Seniorenzentrum Sonnenhof"},
+        ),
+        (
+            "Sabine Keller aus dem Seniorenzentrum Sonnenhof, Fußpflege groß durchgeführt.",
+            {"vorname": "Sabine", "nachname": "Keller", "heim": "Seniorenzentrum Sonnenhof"},
+        ),
+        (
+            "Sabine Keller, Fußpflege groß durchgeführt.",
+            {"vorname": "Sabine", "nachname": "Keller"},
+        ),
+    ],
+)
+def test_ki1_returns_structured_patient_home_context(
+    monkeypatch: pytest.MonkeyPatch, text: str, patient: dict[str, str]
+) -> None:
+    expected_result = {
+        "original_text": text,
+        "strukturierte_daten": {"patient": patient, "positionen": []},
+    }
+    fake_client = _mock_openai(monkeypatch, [expected_result])
+
+    result = ki1_extraction.extract_treatment_text(text)
+
+    assert result["strukturierte_daten"]["patient"] == patient
+    assert fake_client.responses.calls[0]["instructions"] == SYSTEM_PROMPT
+
+
+def test_ki1_prompt_instructs_home_extraction_without_inventing_a_home() -> None:
+    assert '"Keller aus dem Seniorenzentrum Sonnenhof"' in SYSTEM_PROMPT
+    assert '"heim": "Seniorenzentrum Sonnenhof"' in SYSTEM_PROMPT
+    assert 'Wenn kein Heim genannt wird, das Feld "heim" vollständig weglassen.' in SYSTEM_PROMPT
+
+
 def test_ai_extract_rejects_empty_text_and_unknown_fields(client: TestClient) -> None:
     assert client.post("/ai/extract", json={"text": "   "}).status_code == 422
     assert client.post("/ai/extract", json={"text": "Behandlung", "unexpected": True}).status_code == 422

@@ -92,6 +92,22 @@ PATIENT
   "nachname": "Müller"
 }
 
+"Keller aus dem Seniorenzentrum Sonnenhof" ->
+"patient": {
+  "nachname": "Keller",
+  "heim": "Seniorenzentrum Sonnenhof"
+}
+
+"Sabine Keller aus dem Seniorenzentrum Sonnenhof" ->
+"patient": {
+  "vorname": "Sabine",
+  "nachname": "Keller",
+  "heim": "Seniorenzentrum Sonnenhof"
+}
+
+Ein Heim nur übernehmen, wenn es im Originaltext ausdrücklich genannt wird.
+Wenn kein Heim genannt wird, das Feld "heim" vollständig weglassen.
+
 Keinen Vornamen erfinden.
 
 Bei mehreren Personen Angaben strikt personenspezifisch trennen.
