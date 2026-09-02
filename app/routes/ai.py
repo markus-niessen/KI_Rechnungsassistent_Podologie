@@ -187,7 +187,7 @@ def extract_and_create_draft(
         source_text=ai_result.source_text,
         ai_review_comment=ai_result.ai_review_comment,
         new_patient_data=new_patient_data,
-        patient_resolution_required=matching.patient.status == "ambiguous",
+        patient_resolution_required=matching.patient.status in {"ambiguous", "inactive", "deceased"},
         unresolved_items=unresolved_items,
     )
     for item in matching.items:

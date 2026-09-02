@@ -169,6 +169,45 @@ def test_ai_document_type_remains_editable_on_draft(
     assert updated.json()["document_type"] == "INVOICE"
 
 
+@pytest.mark.parametrize("deceased, expected_status", [(False, "inactive"), (True, "deceased")])
+def test_ai_draft_requires_patient_resolution_for_inactive_or_deceased_candidates(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    deceased: bool,
+    expected_status: str,
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    patient = _patient(client, first_name="Sabine", last_name="Keller")
+    if deceased:
+        response = client.patch(f"/patients/{patient['id']}", json={"deceased": True})
+    else:
+        response = client.post(f"/patients/{patient['id']}/deactivate")
+    assert response.status_code == 200
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            {
+                "patient": {"vorname": "Sabine", "nachname": "Keller"},
+                "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+            },
+        ),
+    )
+
+    result = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Sabine Keller")
+    ).json()
+
+    assert result["matching"]["patient"]["status"] == expected_status
+    assert result["invoice"]["patient_id"] is None
+    assert result["invoice"]["patient_resolution_required"] is True
+    assert result["invoice"]["ready_for_finalization"] is False
+
+
 @pytest.mark.parametrize(
     ("ai_method", "expected_method", "text"),
     [

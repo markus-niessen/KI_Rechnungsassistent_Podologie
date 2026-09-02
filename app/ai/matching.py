@@ -66,50 +66,76 @@ def _patient_candidate(patient: Patient) -> PatientMatchCandidate:
         first_name=patient.first_name,
         last_name=patient.last_name,
         birth_date=patient.birth_date,
+        street=patient.street,
+        zip=patient.zip,
         city=patient.city,
         home_name=patient.home_name,
         room=patient.room,
+        active=patient.active,
+        deceased=patient.deceased,
+        death_date=patient.death_date,
     )
+
+
+def _patient_candidates(db: Session, first_name: str | None, last_name: str, *, active: bool) -> list[PatientMatchCandidate]:
+    statement = select(Patient).where(
+        Patient.active.is_(active),
+        func.lower(Patient.last_name) == last_name.lower(),
+    )
+    if first_name is not None:
+        statement = statement.where(func.lower(Patient.first_name) == first_name.lower())
+    patients = list(db.scalars(statement.order_by(Patient.id)))
+    return [_patient_candidate(patient) for patient in patients]
+
+
+def _inactive_patient_status(candidates: list[PatientMatchCandidate]) -> str:
+    if len(candidates) != 1:
+        return "ambiguous"
+    return "deceased" if candidates[0].deceased else "inactive"
 
 
 def resolve_patient_candidates(
     db: Session, first_name: str | None, last_name: str | None
 ) -> PatientCandidateResolution:
-    """Return active exact-name patient candidates without selecting an ambiguous patient."""
+    """Search active patients first and never auto-select inactive or incomplete-name candidates."""
     first_name = _normalized_text(first_name)
     last_name = _normalized_text(last_name)
-    if first_name is None or last_name is None:
+    if last_name is None:
         return PatientCandidateResolution(
             status="not_found",
             first_name=first_name,
             last_name=last_name,
         )
 
-    patients = list(
-        db.scalars(
-            select(Patient)
-            .where(
-                Patient.active.is_(True),
-                func.lower(Patient.first_name) == first_name.lower(),
-                func.lower(Patient.last_name) == last_name.lower(),
-            )
-            .order_by(Patient.id)
-        )
-    )
-    candidates = [_patient_candidate(patient) for patient in patients]
-    if len(candidates) == 1:
-        candidate = candidates[0]
+    active_candidates = _patient_candidates(db, first_name, last_name, active=True)
+    if first_name is not None and len(active_candidates) == 1:
+        candidate = active_candidates[0]
         return PatientCandidateResolution(
             status="matched",
             patient_id=candidate.patient_id,
             first_name=candidate.first_name,
             last_name=candidate.last_name,
         )
+    if active_candidates:
+        return PatientCandidateResolution(
+            status="ambiguous",
+            first_name=first_name,
+            last_name=last_name,
+            candidates=active_candidates,
+        )
+
+    inactive_candidates = _patient_candidates(db, first_name, last_name, active=False)
+    if inactive_candidates:
+        return PatientCandidateResolution(
+            status=_inactive_patient_status(inactive_candidates),
+            first_name=first_name,
+            last_name=last_name,
+            candidates=inactive_candidates,
+        )
     return PatientCandidateResolution(
-        status="ambiguous" if candidates else "not_found",
+        status="not_found",
         first_name=first_name,
         last_name=last_name,
-        candidates=candidates,
     )
 
 
@@ -192,6 +218,8 @@ def resolve_validated_case(db: Session, structured_case: dict[str, Any]) -> Vali
             warnings.append("No active patient matched the extracted first and last name.")
     elif patient_resolution.status == "ambiguous":
         warnings.append("Multiple active patients matched the extracted first and last name.")
+    elif patient_resolution.status in {"inactive", "deceased"}:
+        warnings.append("Only inactive or deceased patients matched the extracted name.")
 
     raw_items = case.get("positionen")
     raw_items = raw_items if isinstance(raw_items, list) else []

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -23,8 +24,27 @@ def db() -> Generator[Session, None, None]:
     Base.metadata.drop_all(engine)
 
 
-def _patient(patient_nr: str, first_name: str = "Peter", last_name: str = "Wagner", active: bool = True) -> Patient:
-    return Patient(patient_nr=patient_nr, first_name=first_name, last_name=last_name, active=active)
+def _patient(
+    patient_nr: str,
+    first_name: str = "Peter",
+    last_name: str = "Wagner",
+    active: bool = True,
+    deceased: bool = False,
+) -> Patient:
+    return Patient(
+        patient_nr=patient_nr,
+        first_name=first_name,
+        last_name=last_name,
+        birth_date=date(1950, 1, 2),
+        street="Musterweg 1",
+        zip="50667",
+        city="Köln",
+        home_name="Testheim",
+        room="12",
+        active=active,
+        deceased=deceased,
+        death_date=date(2026, 1, 3) if deceased else None,
+    )
 
 
 def _service(name: str, active: bool = True, net_price: str = "58.00", vat_rate: str = "19.00") -> Service:
@@ -37,26 +57,59 @@ def _service(name: str, active: bool = True, net_price: str = "58.00", vat_rate:
 
 
 def test_patient_candidate_resolution_matches_one_active_exact_name(db: Session) -> None:
-    patient = _patient("P-000001")
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller")
     db.add(patient)
     db.commit()
 
-    result = resolve_patient_candidates(db, "peter", "WAGNER")
+    result = resolve_patient_candidates(db, "sabine", "KELLER")
 
     assert result.status == "matched"
     assert result.patient_id == patient.id
     assert result.candidates == []
 
 
-def test_patient_candidate_resolution_returns_not_found_for_no_or_inactive_match(db: Session) -> None:
-    db.add(_patient("P-000001", active=False))
-    db.commit()
-
+def test_patient_candidate_resolution_returns_not_found_when_no_candidate_exists(db: Session) -> None:
     result = resolve_patient_candidates(db, "Peter", "Wagner")
 
     assert result.status == "not_found"
     assert result.patient_id is None
     assert result.candidates == []
+
+
+def test_patient_candidate_resolution_returns_inactive_candidate_without_auto_assignment(db: Session) -> None:
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller", active=False)
+    db.add(patient)
+    db.commit()
+
+    result = resolve_patient_candidates(db, "Sabine", "Keller")
+
+    assert result.status == "inactive"
+    assert result.patient_id is None
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    assert candidate.patient_id == patient.id
+    assert candidate.patient_nr == "P-000001"
+    assert candidate.street == "Musterweg 1"
+    assert candidate.zip == "50667"
+    assert candidate.city == "Köln"
+    assert candidate.home_name == "Testheim"
+    assert candidate.room == "12"
+    assert candidate.active is False
+    assert candidate.deceased is False
+
+
+def test_patient_candidate_resolution_returns_deceased_candidate_without_auto_assignment(db: Session) -> None:
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller", active=False, deceased=True)
+    db.add(patient)
+    db.commit()
+
+    result = resolve_patient_candidates(db, "Sabine", "Keller")
+
+    assert result.status == "deceased"
+    assert result.patient_id is None
+    assert result.candidates[0].patient_id == patient.id
+    assert result.candidates[0].deceased is True
+    assert result.candidates[0].death_date == date(2026, 1, 3)
 
 
 def test_patient_candidate_resolution_does_not_select_ambiguous_patients(db: Session) -> None:
@@ -68,6 +121,34 @@ def test_patient_candidate_resolution_does_not_select_ambiguous_patients(db: Ses
     assert result.status == "ambiguous"
     assert result.patient_id is None
     assert [candidate.patient_nr for candidate in result.candidates] == ["P-000001", "P-000002"]
+
+
+def test_patient_candidate_resolution_returns_last_name_candidates_without_auto_assignment(db: Session) -> None:
+    db.add_all(
+        [
+            _patient("P-000001", first_name="Sabine", last_name="Keller"),
+            _patient("P-000002", first_name="Marta", last_name="Keller"),
+        ]
+    )
+    db.commit()
+
+    result = resolve_patient_candidates(db, None, "Keller")
+
+    assert result.status == "ambiguous"
+    assert result.patient_id is None
+    assert [candidate.first_name for candidate in result.candidates] == ["Sabine", "Marta"]
+
+
+def test_patient_candidate_resolution_falls_back_to_inactive_last_name_candidates(db: Session) -> None:
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller", active=False)
+    db.add(patient)
+    db.commit()
+
+    result = resolve_patient_candidates(db, None, "Keller")
+
+    assert result.status == "inactive"
+    assert result.patient_id is None
+    assert [candidate.patient_id for candidate in result.candidates] == [patient.id]
 
 
 def test_service_candidate_resolution_returns_database_price_vat_and_ki_quantity(db: Session) -> None:

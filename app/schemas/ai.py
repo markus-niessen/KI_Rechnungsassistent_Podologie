@@ -82,7 +82,7 @@ class AIValidatedExtractionResponse(BaseModel):
 
 
 MatchStatus = Literal["matched", "not_found", "ambiguous"]
-PatientMatchStatus = Literal["matched", "not_found", "ambiguous", "new_patient"]
+PatientMatchStatus = Literal["matched", "not_found", "ambiguous", "inactive", "deceased", "new_patient"]
 
 
 class PatientMatchCandidate(BaseModel):
@@ -91,9 +91,14 @@ class PatientMatchCandidate(BaseModel):
     first_name: str
     last_name: str
     birth_date: date | None
+    street: str | None
+    zip: str | None
     city: str | None
     home_name: str | None
     room: str | None
+    active: bool
+    deceased: bool
+    death_date: date | None
 
 
 class NewPatientData(BaseModel):
