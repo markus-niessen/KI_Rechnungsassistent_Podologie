@@ -53,7 +53,9 @@ def _business_profile(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
-def _patient(client: TestClient, first_name: str = "Peter", last_name: str = "Wagner") -> dict[str, object]:
+def _patient(
+    client: TestClient, first_name: str = "Peter", last_name: str = "Wagner", home_name: str | None = None
+) -> dict[str, object]:
     response = client.post(
         "/patients",
         json={
@@ -62,6 +64,7 @@ def _patient(client: TestClient, first_name: str = "Peter", last_name: str = "Wa
             "street": "Musterweg 1",
             "zip": "50667",
             "city": "Köln",
+            "home_name": home_name,
         },
     )
     assert response.status_code == 201
@@ -109,6 +112,75 @@ def _matched_case(
     if payment is not None:
         case["zahlung"] = payment
     return case
+
+
+def test_ai_draft_matches_last_name_with_home_context(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    sabine = _patient(client, "Sabine", "Keller", home_name="Seniorenzentrum Sonnenhof")
+    _patient(client, "Marta", "Keller", home_name="Haus Abendrot")
+    _service(client)
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source: _ai_result(
+            source,
+            {
+                "patient": {"nachname": "Keller", "heim": "Seniorenzentrum Sonnenhof"},
+                "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}],
+            },
+        ),
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(
+            int(business_profile["id"]), "Keller aus dem Seniorenzentrum Sonnenhof, Fußpflege groß durchgeführt."
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["matching"]["patient"]["status"] == "matched"
+    assert response.json()["invoice"]["patient_id"] == sabine["id"]
+
+
+def test_swagger_placeholder_text_reaches_matching_without_patient_name(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    _patient(client, "Sabine", "Keller")
+    _service(client)
+    source_text = "string string, Fußpflege groß durchgeführt."
+    observed_source_text: list[str] = []
+
+    def mock_extraction(text: str) -> AIValidatedExtractionResponse:
+        observed_source_text.append(text)
+        return _ai_result(
+            text,
+            {"patient": {}, "positionen": [{"bezeichnung": "Fußpflege groß", "menge": 1}]},
+        )
+
+    monkeypatch.setattr(ai_routes, "extract_and_validate", mock_extraction)
+    response = client.post(
+        "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), source_text)
+    )
+
+    assert response.status_code == 201
+    assert observed_source_text == [source_text]
+    assert response.json()["matching"]["patient"] == {
+        "status": "not_found",
+        "patient_id": None,
+        "first_name": None,
+        "last_name": None,
+        "candidates": [],
+        "source": None,
+        "data": None,
+        "missing_fields": [],
+        "warning": None,
+    }
 
 
 @pytest.mark.parametrize(

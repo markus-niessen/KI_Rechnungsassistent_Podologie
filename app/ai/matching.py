@@ -77,13 +77,17 @@ def _patient_candidate(patient: Patient) -> PatientMatchCandidate:
     )
 
 
-def _patient_candidates(db: Session, first_name: str | None, last_name: str, *, active: bool) -> list[PatientMatchCandidate]:
+def _patient_candidates(
+    db: Session, first_name: str | None, last_name: str, home_name: str | None, *, active: bool
+) -> list[PatientMatchCandidate]:
     statement = select(Patient).where(
         Patient.active.is_(active),
         func.lower(Patient.last_name) == last_name.lower(),
     )
     if first_name is not None:
         statement = statement.where(func.lower(Patient.first_name) == first_name.lower())
+    if home_name is not None:
+        statement = statement.where(func.lower(Patient.home_name) == home_name.lower())
     patients = list(db.scalars(statement.order_by(Patient.id)))
     return [_patient_candidate(patient) for patient in patients]
 
@@ -95,11 +99,12 @@ def _inactive_patient_status(candidates: list[PatientMatchCandidate]) -> str:
 
 
 def resolve_patient_candidates(
-    db: Session, first_name: str | None, last_name: str | None
+    db: Session, first_name: str | None, last_name: str | None, home_name: str | None = None
 ) -> PatientCandidateResolution:
     """Search active patients first and never auto-select inactive or incomplete-name candidates."""
     first_name = _normalized_text(first_name)
     last_name = _normalized_text(last_name)
+    home_name = _normalized_text(home_name)
     if last_name is None:
         return PatientCandidateResolution(
             status="not_found",
@@ -107,8 +112,8 @@ def resolve_patient_candidates(
             last_name=last_name,
         )
 
-    active_candidates = _patient_candidates(db, first_name, last_name, active=True)
-    if first_name is not None and len(active_candidates) == 1:
+    active_candidates = _patient_candidates(db, first_name, last_name, home_name, active=True)
+    if (first_name is not None or home_name is not None) and len(active_candidates) == 1:
         candidate = active_candidates[0]
         return PatientCandidateResolution(
             status="matched",
@@ -124,7 +129,7 @@ def resolve_patient_candidates(
             candidates=active_candidates,
         )
 
-    inactive_candidates = _patient_candidates(db, first_name, last_name, active=False)
+    inactive_candidates = _patient_candidates(db, first_name, last_name, home_name, active=False)
     if inactive_candidates:
         return PatientCandidateResolution(
             status=_inactive_patient_status(inactive_candidates),
@@ -205,10 +210,12 @@ def resolve_validated_case(db: Session, structured_case: dict[str, Any]) -> Vali
     patient_data = patient_data if isinstance(patient_data, dict) else {}
     extracted_first_name = _extracted_value(patient_data, "vorname", "first_name")
     extracted_last_name = _extracted_value(patient_data, "nachname", "last_name")
+    extracted_home_name = _extracted_value(patient_data, "heim", "home_name")
     patient_resolution = resolve_patient_candidates(
         db,
         extracted_first_name,
         extracted_last_name,
+        extracted_home_name,
     )
     if patient_resolution.status == "not_found":
         if patient_resolution.first_name is not None and patient_resolution.last_name is not None:

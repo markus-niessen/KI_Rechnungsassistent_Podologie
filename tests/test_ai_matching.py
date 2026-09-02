@@ -30,6 +30,7 @@ def _patient(
     last_name: str = "Wagner",
     active: bool = True,
     deceased: bool = False,
+    home_name: str | None = "Testheim",
 ) -> Patient:
     return Patient(
         patient_nr=patient_nr,
@@ -39,7 +40,7 @@ def _patient(
         street="Musterweg 1",
         zip="50667",
         city="Köln",
-        home_name="Testheim",
+        home_name=home_name,
         room="12",
         active=active,
         deceased=deceased,
@@ -126,8 +127,8 @@ def test_patient_candidate_resolution_does_not_select_ambiguous_patients(db: Ses
 def test_patient_candidate_resolution_returns_last_name_candidates_without_auto_assignment(db: Session) -> None:
     db.add_all(
         [
-            _patient("P-000001", first_name="Sabine", last_name="Keller"),
-            _patient("P-000002", first_name="Marta", last_name="Keller"),
+            _patient("P-000001", first_name="Sabine", last_name="Keller", home_name="Seniorenzentrum Sonnenhof"),
+            _patient("P-000002", first_name="Marta", last_name="Keller", home_name="Haus Abendrot"),
         ]
     )
     db.commit()
@@ -137,6 +138,34 @@ def test_patient_candidate_resolution_returns_last_name_candidates_without_auto_
     assert result.status == "ambiguous"
     assert result.patient_id is None
     assert [candidate.first_name for candidate in result.candidates] == ["Sabine", "Marta"]
+
+
+def test_patient_candidate_resolution_matches_last_name_with_unique_home_context(db: Session) -> None:
+    sabine = _patient(
+        "P-000001", first_name="Sabine", last_name="Keller", home_name="Seniorenzentrum Sonnenhof"
+    )
+    db.add_all([sabine, _patient("P-000002", first_name="Marta", last_name="Keller", home_name="Haus Abendrot")])
+    db.commit()
+
+    result = resolve_patient_candidates(db, None, "Keller", "Seniorenzentrum Sonnenhof")
+
+    assert result.status == "matched"
+    assert result.patient_id == sabine.id
+
+
+def test_patient_candidate_resolution_keeps_last_name_without_home_context_ambiguous(db: Session) -> None:
+    db.add_all(
+        [
+            _patient("P-000001", first_name="Sabine", last_name="Keller", home_name="Seniorenzentrum Sonnenhof"),
+            _patient("P-000002", first_name="Marta", last_name="Keller", home_name="Haus Abendrot"),
+        ]
+    )
+    db.commit()
+
+    result = resolve_patient_candidates(db, None, "Keller")
+
+    assert result.status == "ambiguous"
+    assert result.patient_id is None
 
 
 def test_patient_candidate_resolution_falls_back_to_inactive_last_name_candidates(db: Session) -> None:
