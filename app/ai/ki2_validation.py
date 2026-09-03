@@ -56,12 +56,20 @@ def _log_usage(response: Any, *, stage: str, model: str) -> None:
     )
 
 
+def _service_context_input(service_names: list[str] | None) -> str:
+    if not service_names:
+        return ""
+    names = "\n".join(f"- {name}" for name in service_names)
+    return "\n\nAktive Leistungen/Produkte aus der Datenbank (nur Bezeichnungen):\n" f"{names}"
+
+
 def validate_ki1_result(
     source_text: str,
     extracted_data: dict[str, Any],
     *,
     stage: str = "KI_2",
     client: OpenAI | None = None,
+    service_names: list[str] | None = None,
 ) -> AIReviewResult:
     """Validate KI 1 output against the source text without changing application data."""
     if not source_text.strip():
@@ -72,6 +80,7 @@ def validate_ki1_result(
         f"{source_text}\n\n"
         "Strukturierte Ausgabe von KI_1:\n"
         f"{json.dumps(extracted_data, ensure_ascii=False)}"
+        f"{_service_context_input(service_names)}"
     )
     try:
         response = (client or _get_openai_client()).responses.create(

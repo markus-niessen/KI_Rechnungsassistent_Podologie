@@ -11,6 +11,7 @@ from app.ai.matching import (
     resolve_service_candidates,
     resolve_validated_case,
 )
+from app.ai.service_context import get_active_service_names
 from app.db.base import Base
 from app.db.models import Patient, Service
 
@@ -57,6 +58,20 @@ def _service(name: str, active: bool = True, net_price: str = "58.00", vat_rate:
     )
 
 
+def test_active_service_context_excludes_inactive_and_deactivated_services(db: Session) -> None:
+    active_service = _service("Fußpflege groß")
+    inactive_service = _service("Nicht mehr angebotene Leistung", active=False)
+    db.add_all([active_service, inactive_service])
+    db.commit()
+
+    assert get_active_service_names(db) == ["Fußpflege groß"]
+
+    active_service.active = False
+    db.commit()
+
+    assert get_active_service_names(db) == []
+
+
 def test_patient_candidate_resolution_matches_one_active_exact_name(db: Session) -> None:
     patient = _patient("P-000001", first_name="Sabine", last_name="Keller")
     db.add(patient)
@@ -71,6 +86,54 @@ def test_patient_candidate_resolution_matches_one_active_exact_name(db: Session)
 
 def test_patient_candidate_resolution_returns_not_found_when_no_candidate_exists(db: Session) -> None:
     result = resolve_patient_candidates(db, "Peter", "Wagner")
+
+    assert result.status == "not_found"
+    assert result.patient_id is None
+    assert result.candidates == []
+
+
+def test_patient_candidate_resolution_returns_one_active_first_name_match_as_ambiguous(db: Session) -> None:
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller")
+    db.add(patient)
+    db.commit()
+
+    result = resolve_patient_candidates(db, "Sabine", None)
+
+    assert result.status == "ambiguous"
+    assert result.patient_id is None
+    assert [candidate.patient_id for candidate in result.candidates] == [patient.id]
+
+
+def test_patient_candidate_resolution_returns_multiple_active_first_name_matches_as_ambiguous(db: Session) -> None:
+    first = _patient("P-000001", first_name="Sabine", last_name="Keller")
+    second = _patient("P-000002", first_name="Sabine", last_name="Meier")
+    db.add_all([first, second])
+    db.commit()
+
+    result = resolve_patient_candidates(db, "Sabine", None)
+
+    assert result.status == "ambiguous"
+    assert result.patient_id is None
+    assert [candidate.patient_id for candidate in result.candidates] == [first.id, second.id]
+
+
+@pytest.mark.parametrize("deceased, expected_status", [(False, "inactive"), (True, "deceased")])
+def test_patient_candidate_resolution_returns_inactive_or_deceased_first_name_candidates(
+    db: Session, deceased: bool, expected_status: str
+) -> None:
+    patient = _patient("P-000001", first_name="Sabine", last_name="Keller", active=False, deceased=deceased)
+    db.add(patient)
+    db.commit()
+
+    result = resolve_patient_candidates(db, "Sabine", None)
+
+    assert result.status == expected_status
+    assert result.patient_id is None
+    assert [candidate.patient_id for candidate in result.candidates] == [patient.id]
+
+
+def test_patient_candidate_resolution_returns_not_found_for_unknown_first_name(db: Session) -> None:
+    result = resolve_patient_candidates(db, "Unbekannt", None)
 
     assert result.status == "not_found"
     assert result.patient_id is None

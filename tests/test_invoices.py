@@ -116,7 +116,7 @@ def test_ai_source_and_review_comment_can_be_stored_on_draft_invoice(
         manual_review_required=True,
         ai_review_comment="KI-Prüfung erforderlich: Bitte prüfen.",
     )
-    monkeypatch.setattr(ai_routes, "extract_and_validate", lambda text: result)
+    monkeypatch.setattr(ai_routes, "extract_and_validate", lambda text, **_: result)
 
     response = client.post("/ai/extract-and-validate", json={"text": source_text, "invoice_id": invoice["id"]})
     stored_invoice = client.get(f"/invoices/{invoice['id']}")

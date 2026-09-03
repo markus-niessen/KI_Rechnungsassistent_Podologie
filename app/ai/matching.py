@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 from sqlalchemy import func, select
@@ -20,6 +21,50 @@ def _normalized_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+_SIZE_PATTERN = re.compile(
+    r"\b(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>ml|l|mg|g|kg|µg|ug|mcg|mm|cm)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalized_sizes(value: str) -> set[tuple[str, str]]:
+    return {
+        (match.group("value").replace(",", "."), match.group("unit").casefold())
+        for match in _SIZE_PATTERN.finditer(value)
+    }
+
+
+def _source_name_with_conflicting_size(source_text: str | None, normalized_name: str) -> str | None:
+    """Return the source name when an explicit source size conflicts with a KI normalization."""
+    if not source_text:
+        return None
+
+    normalized_sizes = _normalized_sizes(normalized_name)
+    if not normalized_sizes:
+        return None
+
+    base_name = _SIZE_PATTERN.sub("", normalized_name).strip()
+    if not base_name:
+        return None
+    base_pattern = re.compile(re.escape(base_name) + r"\s*$", re.IGNORECASE)
+
+    for source_size in _SIZE_PATTERN.finditer(source_text):
+        sentence_start = max(
+            source_text.rfind(".", 0, source_size.start()),
+            source_text.rfind("!", 0, source_size.start()),
+            source_text.rfind("?", 0, source_size.start()),
+        ) + 1
+        prefix = source_text[sentence_start : source_size.start()]
+        base_match = base_pattern.search(prefix)
+        if base_match is None:
+            continue
+
+        source_name = (prefix[base_match.start() :] + source_text[source_size.start() : source_size.end()]).strip()
+        if _normalized_sizes(source_name) != normalized_sizes:
+            return source_name
+    return None
 
 
 def _extracted_value(data: dict[str, Any], *field_names: str) -> Any:
@@ -78,14 +123,13 @@ def _patient_candidate(patient: Patient) -> PatientMatchCandidate:
 
 
 def _patient_candidates(
-    db: Session, first_name: str | None, last_name: str, home_name: str | None, *, active: bool
+    db: Session, first_name: str | None, last_name: str | None, home_name: str | None, *, active: bool
 ) -> list[PatientMatchCandidate]:
-    statement = select(Patient).where(
-        Patient.active.is_(active),
-        func.lower(Patient.last_name) == last_name.lower(),
-    )
+    statement = select(Patient).where(Patient.active.is_(active))
     if first_name is not None:
         statement = statement.where(func.lower(Patient.first_name) == first_name.lower())
+    if last_name is not None:
+        statement = statement.where(func.lower(Patient.last_name) == last_name.lower())
     if home_name is not None:
         statement = statement.where(func.lower(Patient.home_name) == home_name.lower())
     patients = list(db.scalars(statement.order_by(Patient.id)))
@@ -105,7 +149,7 @@ def resolve_patient_candidates(
     first_name = _normalized_text(first_name)
     last_name = _normalized_text(last_name)
     home_name = _normalized_text(home_name)
-    if last_name is None:
+    if first_name is None and last_name is None:
         return PatientCandidateResolution(
             status="not_found",
             first_name=first_name,
@@ -113,7 +157,11 @@ def resolve_patient_candidates(
         )
 
     active_candidates = _patient_candidates(db, first_name, last_name, home_name, active=True)
-    if (first_name is not None or home_name is not None) and len(active_candidates) == 1:
+    if (first_name is not None and last_name is not None) or (last_name is not None and home_name is not None):
+        has_unique_active_candidate = len(active_candidates) == 1
+    else:
+        has_unique_active_candidate = False
+    if has_unique_active_candidate:
         candidate = active_candidates[0]
         return PatientCandidateResolution(
             status="matched",
@@ -154,7 +202,10 @@ def _service_candidate(service: Service) -> ServiceMatchCandidate:
 
 
 def resolve_service_candidates(
-    db: Session, name: str | None, quantity: Decimal | None = None
+    db: Session,
+    name: str | None,
+    quantity: Decimal | None = None,
+    source_text: str | None = None,
 ) -> ServiceCandidateResolution:
     """Return active exact-name service candidates without fuzzy or semantic matching."""
     input_name = _normalized_text(name) or ""
@@ -174,6 +225,13 @@ def resolve_service_candidates(
     candidates = [_service_candidate(service) for service in services]
     if len(candidates) == 1:
         candidate = candidates[0]
+        source_name = _source_name_with_conflicting_size(source_text, candidate.name)
+        if source_name is not None:
+            return ServiceCandidateResolution(
+                input_name=source_name,
+                status="not_found",
+                quantity=quantity,
+            )
         return ServiceCandidateResolution(
             input_name=input_name,
             status="matched",
@@ -199,7 +257,9 @@ def _quantity(value: Any) -> Decimal | None:
     return quantity if quantity > 0 else None
 
 
-def resolve_validated_case(db: Session, structured_case: dict[str, Any]) -> ValidatedCaseResolution:
+def resolve_validated_case(
+    db: Session, structured_case: dict[str, Any], source_text: str | None = None
+) -> ValidatedCaseResolution:
     """Resolve one validated KI case to master-data candidates without persisting anything."""
     case = structured_case.get("strukturierte_daten", structured_case)
     if not isinstance(case, dict):
@@ -234,7 +294,12 @@ def resolve_validated_case(db: Session, structured_case: dict[str, Any]) -> Vali
     for index, raw_item in enumerate(raw_items, start=1):
         item = raw_item if isinstance(raw_item, dict) else {}
         quantity = _quantity(item.get("menge"))
-        item_resolution = resolve_service_candidates(db, item.get("bezeichnung"), quantity)
+        item_resolution = resolve_service_candidates(
+            db,
+            item.get("bezeichnung"),
+            quantity,
+            source_text=source_text,
+        )
         item_resolutions.append(item_resolution)
         if quantity is None:
             warnings.append(f"Position {index} has no valid positive quantity.")

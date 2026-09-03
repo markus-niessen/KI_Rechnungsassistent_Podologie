@@ -1,5 +1,8 @@
 from collections.abc import Generator
 from decimal import Decimal
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.models import Invoice, Patient
 from app.db.session import get_db
+from app.ai import ki1_extraction, ki2_validation
 from app.main import app
 from app.schemas.ai import AIReviewResult, AIValidatedExtractionResponse
 
@@ -80,6 +84,53 @@ def _service(client: TestClient, name: str = "Fußpflege groß", price: str = "5
     return response.json()
 
 
+def _mock_ai_pipeline(monkeypatch: pytest.MonkeyPatch, outputs: list[dict[str, object]]) -> Mock:
+    responses = [
+        SimpleNamespace(output_text=json.dumps(output, ensure_ascii=False), usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+        for output in outputs
+    ]
+    create = Mock(side_effect=responses)
+    fake_client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    monkeypatch.setattr(ki1_extraction, "_get_openai_client", lambda: fake_client)
+    monkeypatch.setattr(ki2_validation, "_get_openai_client", lambda: fake_client)
+    return create
+
+
+def test_ai_extract_injects_only_active_services_from_the_current_database(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    active_service = _service(client, "Spirularin HF Gel 40 ml")
+    inactive_service = _service(client, "Nicht mehr angebotene Leistung")
+    assert client.post(f"/services/{inactive_service['id']}/deactivate").status_code == 200
+    response_data = {
+        "original_text": "Peter Wagner, Spirularin Gel 40 ml mitgegeben.",
+        "strukturierte_daten": {
+            "positionen": [
+                {
+                    "bezeichnung": "Spirularin HF Gel 40 ml",
+                    "typ": "produkt",
+                    "menge": 1,
+                    "verwendungszweck": "abgabe",
+                }
+            ]
+        },
+    }
+    create = Mock(return_value=SimpleNamespace(output_text=json.dumps(response_data), usage=None))
+    monkeypatch.setattr(
+        ki1_extraction,
+        "_get_openai_client",
+        lambda: SimpleNamespace(responses=SimpleNamespace(create=create)),
+    )
+
+    response = client.post("/ai/extract", json={"text": response_data["original_text"]})
+
+    assert response.status_code == 200
+    assert response.json() == response_data
+    prompt_input = str(create.call_args.kwargs["input"])
+    assert active_service["name"] in prompt_input
+    assert inactive_service["name"] not in prompt_input
+
+
 def _ai_result(text: str, structured_data: dict[str, object]) -> AIValidatedExtractionResponse:
     return AIValidatedExtractionResponse(
         source_text=text,
@@ -124,7 +175,7 @@ def test_ai_draft_matches_last_name_with_home_context(client: TestClient, monkey
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"nachname": "Keller", "heim": "Seniorenzentrum Sonnenhof"},
@@ -145,6 +196,41 @@ def test_ai_draft_matches_last_name_with_home_context(client: TestClient, monkey
     assert response.json()["invoice"]["patient_id"] == sabine["id"]
 
 
+def test_ai_draft_marks_first_name_only_patient_candidates_as_unresolved(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.routes import ai as ai_routes
+
+    business_profile = _business_profile(client)
+    patient = _patient(client, "Sabine", "Keller")
+    _service(client, "Fußpflege klein")
+    monkeypatch.setattr(
+        ai_routes,
+        "extract_and_validate",
+        lambda source, **_: _ai_result(
+            source,
+            {
+                "patient": {"vorname": "Sabine"},
+                "positionen": [{"bezeichnung": "Fußpflege klein", "menge": 1}],
+            },
+        ),
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(int(business_profile["id"]), "Sabine, Fußpflege klein durchgeführt."),
+    )
+    payload = response.json()
+
+    assert response.status_code == 201
+    assert payload["matching"]["patient"]["status"] == "ambiguous"
+    assert payload["matching"]["patient"]["patient_id"] is None
+    assert [candidate["patient_id"] for candidate in payload["matching"]["patient"]["candidates"]] == [patient["id"]]
+    assert payload["invoice"]["patient_id"] is None
+    assert payload["invoice"]["patient_resolution_required"] is True
+    assert payload["invoice"]["ready_for_finalization"] is False
+
+
 def test_swagger_placeholder_text_reaches_matching_without_patient_name(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,7 +242,7 @@ def test_swagger_placeholder_text_reaches_matching_without_patient_name(
     source_text = "string string, Fußpflege groß durchgeführt."
     observed_source_text: list[str] = []
 
-    def mock_extraction(text: str) -> AIValidatedExtractionResponse:
+    def mock_extraction(text: str, **_: object) -> AIValidatedExtractionResponse:
         observed_source_text.append(text)
         return _ai_result(
             text,
@@ -206,7 +292,7 @@ def test_ai_draft_uses_explicit_document_type_or_existing_default(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(source, _matched_case(document_type=ai_document_type)),
+        lambda source, **_: _ai_result(source, _matched_case(document_type=ai_document_type)),
     )
 
     response = client.post(
@@ -229,7 +315,7 @@ def test_ai_document_type_remains_editable_on_draft(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(source, _matched_case(document_type="quittung")),
+        lambda source, **_: _ai_result(source, _matched_case(document_type="quittung")),
     )
     created = client.post(
         "/ai/extract-and-create-draft", json=_draft_request(int(business_profile["id"]), "Peter Wagner")
@@ -261,7 +347,7 @@ def test_ai_draft_requires_patient_resolution_for_inactive_or_deceased_candidate
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Sabine", "nachname": "Keller"},
@@ -302,7 +388,7 @@ def test_ai_draft_uses_invoice_date_for_confirmed_payment_without_explicit_payme
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             _matched_case(
                 payment={
@@ -335,7 +421,7 @@ def test_ai_draft_keeps_explicit_payment_date(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             _matched_case(
                 payment={
@@ -403,7 +489,7 @@ def test_ai_draft_does_not_invent_incomplete_or_inconsistent_payments(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(source, _matched_case(payment=payment)),
+        lambda source, **_: _ai_result(source, _matched_case(payment=payment)),
     )
 
     response = client.post(
@@ -429,7 +515,7 @@ def test_ai_draft_does_not_create_overpayment(client: TestClient, monkeypatch: p
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             _matched_case(
                 payment={"zahlungsart": "bar", "betrag": "70.00"}
@@ -461,7 +547,7 @@ def test_ai_matching_creates_editable_draft_with_existing_patient_and_service(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Peter", "nachname": "Wagner"},
@@ -513,7 +599,7 @@ def test_ai_draft_keeps_new_patient_data_without_creating_a_patient(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Anna", "nachname": "Müller"},
@@ -552,7 +638,7 @@ def test_ai_draft_creates_new_patient_only_when_finalized(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {
@@ -609,7 +695,7 @@ def test_ai_draft_keeps_ambiguous_patient_unresolved_without_assignment(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Peter", "nachname": "Wagner"},
@@ -654,7 +740,7 @@ def test_ai_draft_keeps_unresolved_services_without_creating_invoice_items(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Peter", "nachname": "Wagner"},
@@ -685,7 +771,7 @@ def test_new_patient_ai_draft_with_missing_address_cannot_be_finalized(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {"vorname": "Anna", "nachname": "Müller"},
@@ -717,7 +803,7 @@ def test_new_patient_creation_rolls_back_when_finalization_fails(
     monkeypatch.setattr(
         ai_routes,
         "extract_and_validate",
-        lambda source: _ai_result(
+        lambda source, **_: _ai_result(
             source,
             {
                 "patient": {
@@ -749,3 +835,138 @@ def test_new_patient_creation_rolls_back_when_finalization_fails(
         assert invoice.status == "DRAFT"
         assert invoice.invoice_number is None
         assert invoice.patient_id is None
+
+
+@pytest.mark.parametrize("correction_phrase", ["ich meine", "Korrektur:"])
+def test_ai_draft_self_correction_replaces_revoked_service_without_restoring_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, correction_phrase: str
+) -> None:
+    business_profile = _business_profile(client)
+    _patient(client, "Sabine", "Keller")
+    small = _service(client, "Fußpflege klein")
+    large = _service(client, "Fußpflege groß")
+    additional_work = _service(client, "Mehrarbeit")
+    source_text = (
+        f"Sabine Keller, Fußpflege klein durchgeführt, {correction_phrase} Fußpflege groß. Mehrarbeit gemacht."
+    )
+    create = _mock_ai_pipeline(
+        monkeypatch,
+        [
+            {
+                "original_text": source_text,
+                "strukturierte_daten": {
+                    "patient": {"vorname": "Sabine", "nachname": "Keller"},
+                    "behandlung": {"art": "Fußpflege klein"},
+                    "positionen": [
+                        {"bezeichnung": "Fußpflege klein", "typ": "leistung", "menge": 1},
+                        {"bezeichnung": "Mehrarbeit", "typ": "zusatzleistung", "menge": 1},
+                    ],
+                },
+            },
+            {
+                "status": "correction_required",
+                "issues": [
+                    {
+                        "field": "strukturierte_daten.behandlung.art",
+                        "type": "contradiction",
+                        "message": "Die Selbstkorrektur nennt Fußpflege groß.",
+                    }
+                ],
+                "summary": "Die korrigierte Leistung übernehmen.",
+            },
+            {
+                "original_text": source_text,
+                "strukturierte_daten": {
+                    "patient": {"vorname": "Sabine", "nachname": "Keller"},
+                    "behandlung": {"art": "Fußpflege groß"},
+                    "positionen": [
+                        {"bezeichnung": "Fußpflege klein", "typ": "leistung", "menge": 1},
+                        {"bezeichnung": "Fußpflege groß", "typ": "leistung", "menge": 1},
+                        {"bezeichnung": "Mehrarbeit", "typ": "zusatzleistung", "menge": 1},
+                    ],
+                },
+            },
+            {"status": "ok", "issues": [], "summary": None},
+        ],
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(int(business_profile["id"]), source_text),
+    )
+    invoice = response.json()["invoice"]
+
+    assert response.status_code == 201
+    assert [item["service_id"] for item in invoice["items"]] == [large["id"], additional_work["id"]]
+    assert small["id"] not in [item["service_id"] for item in invoice["items"]]
+    assert invoice["ai_review_comment"] is None
+    assert invoice["unresolved_items"] == []
+    assert invoice["ready_for_finalization"] is True
+    correction_input = str(create.call_args_list[2].kwargs["input"])
+    recheck_input = str(create.call_args_list[3].kwargs["input"])
+    assert "SELBSTKORREKTUREN HABEN VORRANG" in correction_input
+    assert "widerrufen" in correction_input
+    assert source_text in correction_input
+    assert "Fußpflege groß" in recheck_input
+    structured_recheck_data = recheck_input.split("Strukturierte Ausgabe von KI_1:\n", 1)[1]
+    assert f'"bezeichnung": "{small["name"]}"' not in structured_recheck_data
+
+
+@pytest.mark.parametrize(
+    ("source_product", "ai_product", "active_products", "expected_matched"),
+    [
+        ("Spirularin HF Gel 100 ml", "Spirularin HF Gel 40 ml", ["Spirularin HF Gel 40 ml"], False),
+        ("Spirularin HF Gel 200 ml", "Spirularin HF Gel 40 ml", ["Spirularin HF Gel 40 ml"], False),
+        ("Spirularin HF Gel 40 ml", "Spirularin HF Gel 40 ml", ["Spirularin HF Gel 40 ml"], True),
+        ("Spirularin HF Gel", "Spirularin HF Gel 40 ml", ["Spirularin HF Gel 40 ml"], True),
+        ("Spirularin HF Gel", "Spirularin HF Gel", ["Spirularin HF Gel 40 ml", "Spirularin HF Gel 100 ml"], False),
+    ],
+)
+def test_ai_draft_does_not_match_products_with_explicit_conflicting_sizes(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    source_product: str,
+    ai_product: str,
+    active_products: list[str],
+    expected_matched: bool,
+) -> None:
+    business_profile = _business_profile(client)
+    _patient(client, "Sabine", "Keller")
+    _service(client, "Fußpflege klein")
+    services = [_service(client, product) for product in active_products]
+    source_text = f"Sabine Keller, Fußpflege klein durchgeführt. {source_product} mitgegeben."
+    _mock_ai_pipeline(
+        monkeypatch,
+        [
+            {
+                "original_text": source_text,
+                "strukturierte_daten": {
+                    "patient": {"vorname": "Sabine", "nachname": "Keller"},
+                    "positionen": [
+                        {"bezeichnung": "Fußpflege klein", "typ": "leistung", "menge": 1},
+                        {"bezeichnung": ai_product, "typ": "produkt", "menge": 1, "verwendungszweck": "abgabe"},
+                    ],
+                },
+            },
+            {"status": "manual_review_required", "issues": [], "summary": "Produktbezeichnung prüfen."},
+        ],
+    )
+
+    response = client.post(
+        "/ai/extract-and-create-draft",
+        json=_draft_request(int(business_profile["id"]), source_text),
+    )
+    payload = response.json()
+    invoice = payload["invoice"]
+    product_match = payload["matching"]["items"][1]
+
+    assert response.status_code == 201
+    if expected_matched:
+        assert product_match["status"] == "matched"
+        assert product_match["service_id"] == services[0]["id"]
+        assert invoice["unresolved_items"] == []
+    else:
+        assert product_match["status"] == "not_found"
+        assert product_match["service_id"] is None
+        assert invoice["unresolved_items"][0]["input_name"] == source_product
+        assert invoice["ready_for_finalization"] is False

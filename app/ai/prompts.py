@@ -70,8 +70,19 @@ GRUNDREGELN
    Im "original_text" dürfen sie enthalten sein.
 6. Hinweise dürfen nur Sachverhalte oder Alternativen nennen, die im Originaltext tatsächlich vorkommen.
 7. Direkte Selbstkorrekturen haben Vorrang:
-   "X, nein Y" bedeutet: X verwerfen, Y übernehmen.
-   "zweimal, nein nur einmal" bedeutet Menge 1.
+   "X, ich meine Y" und "X, Korrektur: Y" bedeuten: X verwerfen, Y übernehmen.
+   Ersetze nur die unmittelbar widersprochene Angabe; andere ausdrücklich
+   genannte Positionen bleiben erhalten.
+   Die widerrufene Angabe darf weder in "behandlung" noch als Position
+   ausgegeben werden.
+   Ist nicht eindeutig, welche Angabe korrigiert wurde, nicht raten und einen
+   Hinweis ausgeben.
+
+Verbindliches Muster für Positionskorrekturen:
+"Leistung A durchgeführt. Korrektur: Leistung B. Zusatzleistung C gemacht."
+führt zu "behandlung.art": "Leistung B" sowie Positionen "Leistung B" und
+"Zusatzleistung C". "Leistung A" darf weder als Behandlung noch als Position
+ausgegeben werden. Dasselbe gilt für "ich meine".
 8. Relevante Leistungs- und Produktbegriffe erhalten, auch wenn
    sie nicht im Prompt bekannt sind. Die Datenbankzuordnung erfolgt
    später im Backend.
@@ -244,11 +255,6 @@ Menge größer als 1 nur bei ausdrücklicher Mehrfachangabe:
 "Fußpflege klein zweimal durchgeführt"
 
 -> Menge 2.
-
-Selbstkorrekturen haben Vorrang:
-
-"zweimal Fußpflege groß, nein nur einmal"
--> Menge 1.
 
 Frühere Behandlungen nicht zur aktuellen Menge addieren.
 
@@ -497,13 +503,13 @@ Ausgabe:
 BEISPIEL 2
 
 Eingabe:
-Max Mustermann Fußpflege groß, nein Fußpflege klein.
+Max Mustermann Fußpflege groß. Korrektur: Fußpflege klein.
 Spirularin habe ich vielleicht verkauft oder benutzt, bin nicht sicher.
 20 Euro bar. Stopp.
 
 Ausgabe:
 {
-  "original_text": "Max Mustermann Fußpflege groß, nein Fußpflege klein. Spirularin habe ich vielleicht verkauft oder
+  "original_text": "Max Mustermann Fußpflege groß. Korrektur: Fußpflege klein. Spirularin habe ich vielleicht verkauft oder
    benutzt, bin nicht sicher. 20 Euro bar. Stopp.",
   "strukturierte_daten": {
     "patient": {
@@ -739,8 +745,31 @@ beanstandet werden. Eine Begründung oder Begleitinformation muss nicht Teil der
 Positionsbezeichnung sein, wenn die wesentliche Information korrekt übernommen
 wurde.
 
-Verwende ausschließlich Informationen aus dem Originaltext. Ergänze keine
-Informationen aus eigenem Wissen. Führe keine Datenbankzuordnung durch.
+Berücksichtige die expliziten Mappingregeln des KI-1-Schemas. Insbesondere ist
+bei einer im Originaltext genannten Produktmitgabe die Zuordnung
+"verwendungszweck": "abgabe" korrekt: "mitgegeben" bedeutet "abgabe". Fordere
+keine redundante zweite Darstellung derselben Information, wenn sie bereits
+korrekt im vorhandenen Schema enthalten ist. Eine als Position enthaltene
+durchgeführte Leistung muss nicht zusätzlich in einem anderen Feld verlangt
+werden.
+
+Direkte Selbstkorrekturen mit "X, ich meine Y" oder "X, Korrektur: Y" haben
+Vorrang: X ist widerrufen und Y gültig. Beanstande sowohl eine weiterhin
+enthaltene widerrufene Angabe als auch eine fehlende gültige Angabe. Dabei
+bleiben andere unabhängige Positionen erhalten.
+
+Wenn aktive Leistungen/Produkte aus der Datenbank im Kontext übergeben werden,
+ist eine KI-1-Bezeichnung zulässig, die genau einer aktiven Bezeichnung leicht
+entspricht, auch wenn der Originaltext eine leichte Variante verwendet. Akzeptiere
+eine solche Normalisierung nur bei genau einem plausiblen aktiven Treffer. Eine
+abweichende ausdrücklich genannte Größe, Menge, Einheit oder andere fachliche
+Eigenschaft ist keine leichte Variante. Bei mehreren plausiblen Treffern, keinem
+aktiven Treffer oder einer solchen ausdrücklichen Abweichung bleibt die Angabe
+beanstandungsfähig. Inaktive Bezeichnungen rechtfertigen keine Normalisierung.
+
+Verwende ausschließlich Informationen aus dem Originaltext und dem ausdrücklich
+übergebenen aktiven Kontext. Ergänze keine Informationen aus eigenem Wissen.
+Führe keine Datenbankzuordnung außerhalb dieses Kontexts durch.
 Ergänze keine Leistungen, Patienten oder Preise aus einem Katalog. Berechne
 keine Rechnungsbeträge, Steuern oder Gesamtsummen. Interpretiere fehlende
 Informationen nicht als Fehler.

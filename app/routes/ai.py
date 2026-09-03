@@ -11,6 +11,7 @@ from app.ai.ki1_extraction import AIConfigurationError, AIExtractionError, extra
 from app.ai.ki2_validation import AIValidationError, validate_ki1_result
 from app.ai.matching import resolve_validated_case
 from app.ai.orchestration import extract_and_validate
+from app.ai.service_context import get_active_service_names
 from app.db.models import Invoice
 from app.db.session import get_db
 from app.routes.invoices import add_draft_invoice_item, create_draft_invoice, recalculate_draft_invoice
@@ -111,9 +112,12 @@ def _payment_status_is_consistent(payment_status: str | None, amount: Decimal, t
 
 
 @router.post("/extract", response_model=dict)
-def extract_text(extraction_request: AIExtractRequest) -> dict:
+def extract_text(extraction_request: AIExtractRequest, db: DatabaseSession) -> dict:
     try:
-        result = extract_treatment_text(extraction_request.text)
+        result = extract_treatment_text(
+            extraction_request.text,
+            service_names=get_active_service_names(db),
+        )
     except AIConfigurationError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -128,9 +132,13 @@ def extract_text(extraction_request: AIExtractRequest) -> dict:
 
 
 @router.post("/validate", response_model=AIReviewResult)
-def validate_text(validation_request: AIValidateRequest) -> AIReviewResult:
+def validate_text(validation_request: AIValidateRequest, db: DatabaseSession) -> AIReviewResult:
     try:
-        return validate_ki1_result(validation_request.text, validation_request.data)
+        return validate_ki1_result(
+            validation_request.text,
+            validation_request.data,
+            service_names=get_active_service_names(db),
+        )
     except AIConfigurationError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -148,7 +156,10 @@ def extract_and_create_draft(
     draft_request: AIDraftCreateRequest, db: DatabaseSession
 ) -> AIDraftCreateResponse:
     try:
-        ai_result = extract_and_validate(draft_request.text)
+        ai_result = extract_and_validate(
+            draft_request.text,
+            service_names=get_active_service_names(db),
+        )
     except AIConfigurationError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -167,7 +178,7 @@ def extract_and_create_draft(
             detail="AI draft creation currently supports one structured case only",
         )
 
-    matching = resolve_validated_case(db, structured_data)
+    matching = resolve_validated_case(db, structured_data, source_text=ai_result.source_text)
     patient_id = matching.patient.patient_id if matching.patient.status == "matched" else None
     new_patient_data = (
         matching.patient.data.model_dump(mode="json") if matching.patient.status == "new_patient" else None
@@ -229,7 +240,10 @@ def extract_and_validate_text(
     extraction_request: AIExtractRequest, db: DatabaseSession
 ) -> AIValidatedExtractionResponse:
     try:
-        result = extract_and_validate(extraction_request.text)
+        result = extract_and_validate(
+            extraction_request.text,
+            service_names=get_active_service_names(db),
+        )
     except AIConfigurationError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
