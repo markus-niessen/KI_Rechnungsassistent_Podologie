@@ -1,5 +1,7 @@
 # KI-Rechnungsassistent für Podologie
 
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/) [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/) [![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/) [![Pydantic](https://img.shields.io/badge/Pydantic-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/) [![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://platform.openai.com/) [![ReportLab](https://img.shields.io/badge/ReportLab-CC0000)](https://www.reportlab.com/) [![pytest](https://img.shields.io/badge/pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+
 Der KI-Rechnungsassistent ist eine lokale Webanwendung zur Vorbereitung, Prüfung und Verwaltung von Rechnungsdaten einer podologischen Praxis. Ziel ist es, wiederkehrende Verwaltungsarbeit zu reduzieren, ohne abrechnungsrelevante Entscheidungen an ein Sprachmodell abzugeben.
 
 Freitext-Eingaben werden strukturiert und anschließend mit realen Patienten, Leistungen und Preisen aus der lokalen Datenbank abgeglichen. Die KI darf dabei keine Preise, Steuern, Summen, Rechnungsnummern, Datenbank-IDs oder neue Leistungen erfinden. Abrechnungsrelevante Werte stammen ausschließlich aus SQLite; Geldbeträge werden mit `Decimal` im Backend berechnet.
@@ -24,6 +26,7 @@ Das Backend ist bereits weit entwickelt. Ein benutzerfreundliches Web-Frontend i
 | Rechnungsnummern | ✅ umgesetzt | Nummern erst bei FINAL, getrennt nach Business Profile, Dokumenttyp und Jahr. |
 | Prefix Reservations | ✅ umgesetzt | Ein einmal vergebener `invoice_prefix` bleibt auch nach Hard Delete reserviert. |
 | Payments und Teilzahlungen | ✅ umgesetzt | Mehrere Payments pro Rechnung, Decimal-Prüfung, Überzahlungsschutz und abgeleiteter Zahlungsstatus. |
+| Zahlungs- und Mahnworkflow | ✅ umgesetzt | Zahlungserinnerung (Stufe 0), Mahnstufen 1–10, Gebühren-Snapshots, Snooze, Erlass, DRAFT-Erstellung und Teilzahlungsberücksichtigung. |
 | PDF und GiroCode | ✅ umgesetzt | FINAL-Einzel- und Sammelrechnungen als ReportLab-PDF mit EPC-/GiroCode. |
 | Sammelrechnung | ✅ umgesetzt | Gemeinsamer Beleg mit mehreren Patienten über `COLLECTIVE_INVOICE`; mehrseitige Tabellen werden unterstützt. |
 | Quittung | ◐ teilweise umgesetzt | Dokumenttyp `RECEIPT` und eigener Nummerncode `QT` sind vorhanden; ein eigenständiger Zahlungs-/Quittungsworkflow und ein spezielles Quittungslayout sind noch offen. |
@@ -225,6 +228,35 @@ Normale Änderungen an Rechnungen und Positionen sind ausschließlich im Status 
 
 Erlaubte Zahlungsarten sind `CASH` und `BANK_TRANSFER`. Mehrere Payments pro Rechnung bilden Teilzahlungen ab. `paid_amount`, `remaining_amount` sowie `OPEN`, `PARTIALLY_PAID` und `PAID` werden aus den vorhandenen Payments abgeleitet und nicht redundant gespeichert.
 
+### Zahlungserinnerungen und Mahnungen
+
+| Methode | Pfad | Zweck |
+| --- | --- | --- |
+| `POST` | `/reminder-settings` | Konfiguration einer Erinnerungs-/Mahnstufe anlegen. |
+| `GET` | `/reminder-settings` | Alle Stufenkonfigurationen laden. |
+| `GET` | `/reminder-settings/{setting_id}` | Eine Stufenkonfiguration laden. |
+| `PATCH` | `/reminder-settings/{setting_id}` | Stufenkonfiguration teilweise ändern. |
+| `POST` | `/reminders` | Einen fälligen Reminder manuell als `DRAFT` vorbereiten. |
+| `GET` | `/reminders` | Reminders auflisten; optional nach `invoice_id` filtern. |
+| `GET` | `/reminders/due` | Fällige offene DRAFT-Aufgaben ermitteln und optional idempotent als DRAFT anlegen. |
+| `GET` | `/reminders/{reminder_id}` | Einzelnen Reminder laden. |
+| `PATCH` | `/reminders/{reminder_id}` | Änderbare Reminder-Daten, etwa eine Snooze-Frist, aktualisieren. |
+| `POST` | `/reminders/{reminder_id}/issue` | Einen vorbereiteten DRAFT ausdrücklich auf `ISSUED` setzen. |
+| `POST` | `/reminders/{reminder_id}/cancel` | Aktiven Reminder abbrechen. |
+| `POST` | `/reminders/{reminder_id}/waive-fee` | Mahngebühr eines aktiven Reminders erlassen. |
+| `POST` | `/reminders/{reminder_id}/waive-postage` | Portokosten eines aktiven Reminders erlassen. |
+| `POST` | `/reminders/{reminder_id}/snooze` | Einen aktiven Reminder bis zu einem Datum zurückstellen. |
+
+`ReminderSetting` konfiguriert die Sequenzen `0` bis `10`: Sequenz `0` ist stets `PAYMENT_REMINDER`; Sequenzen `1` bis `10` sind `REMINDER`. Jede aktive Stufe hat `deadline_days`, `reminder_fee`, `postage_fee` und optional `auto_create_draft`.
+
+- Stufe 0 wird erst nach Rechnungsfälligkeit plus konfigurierte Frist fällig.
+- Eine weitere Stufe wird erst nach der vorherigen `ISSUED`-Stufe und deren Frist fällig.
+- Bei `auto_create_draft=true` erzeugt `/reminders/due` ausschließlich einen `DRAFT`, niemals automatisch `ISSUED`. Der DRAFT bleibt dort als offene Aufgabe sichtbar; der Aufruf erzeugt keinen Duplikat-DRAFT.
+- Snoozed DRAFTs sind bis `snoozed_until` nicht fällig. `ISSUED`, `PAID` und `CANCELLED` erscheinen nicht als offene DRAFT-Aufgaben.
+- Jede Reminder-Erstellung speichert den zu diesem Zeitpunkt offenen Rechnungsbetrag sowie Mahngebühr und Porto als Snapshot. Teilzahlungen beeinflussen deshalb den aktuellen Restbetrag der nächsten Stufe.
+- Bei vollständiger Zahlung werden aktive Reminders auf `PAID` gesetzt. Für Rechnungen im Status `DRAFT` werden keine Reminders erstellt.
+- Ein partieller Unique-Index verhindert pro Rechnung und Sequenz doppelte aktive `DRAFT`-/`ISSUED`-Reminders.
+
 ### KI
 
 | Methode | Pfad | Zweck |
@@ -279,6 +311,8 @@ Die aktuelle, für [dbdiagram.io](https://dbdiagram.io) geeignete Dokumentation 
 | `invoices` | DRAFT-/FINAL-Belegkopf, Summen, KI-Metadaten und temporäre new-patient-Daten. |
 | `invoice_items` | Positionen mit Patient-/Service-FKs und unveränderlichen Snapshots. |
 | `payments` | Zahlungen zu Rechnungen; mehrere Datensätze erlauben Teilzahlungen. |
+| `reminder_settings` | Globale Konfiguration der Zahlungserinnerung und Mahnstufen 0–10. |
+| `reminders` | Erinnerungs-/Mahnvorgänge je Rechnung mit Betrags-/Gebührensnapshots und Lifecycle-Status. |
 
 ```mermaid
 erDiagram
@@ -288,6 +322,7 @@ erDiagram
     PATIENTS ||--o{ INVOICE_ITEMS : "optional patient_id"
     SERVICES ||--o{ INVOICE_ITEMS : "optional service_id"
     INVOICES ||--o{ PAYMENTS : "invoice_id"
+    INVOICES ||--o{ REMINDERS : "invoice_id"
 ```
 
 `invoice_prefix_reservations` besitzt bewusst keine Foreign-Key-Beziehung zu `business_profiles`: Eine Reservierung muss auch nach einem zulässigen Hard Delete des Profils erhalten bleiben. Name-, Preis- und Steuer-Snapshots in `invoice_items` sind historische Werte, keine separaten Beziehungen.
