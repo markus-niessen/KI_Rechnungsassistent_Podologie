@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -184,3 +184,53 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     invoice: Mapped[Invoice] = relationship(back_populates="payments")
+
+
+class ReminderSetting(Base):
+    __tablename__ = "reminder_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sequence: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    deadline_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    reminder_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    postage_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    auto_create_draft: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+    __table_args__ = (
+        Index(
+            "uq_reminders_active_invoice_sequence",
+            "invoice_id",
+            "sequence",
+            unique=True,
+            sqlite_where=text("status IN ('DRAFT', 'ISSUED')"),
+            postgresql_where=text("status IN ('DRAFT', 'ISSUED')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    open_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    reminder_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    postage_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="DRAFT", nullable=False)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    snoozed_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reminder_fee_waived: Mapped[bool] = mapped_column(default=False, nullable=False)
+    postage_fee_waived: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    invoice: Mapped[Invoice] = relationship()

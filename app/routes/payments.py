@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Invoice, Payment
 from app.db.session import get_db
 from app.invoice_logic import money
+from app.reminder_logic import mark_paid_reminders_for_invoice
 from app.schemas.payment import PaymentCreate, PaymentRead, PaymentUpdate
 
 
@@ -58,6 +59,7 @@ def create_payment_record(db: Session, payment_data: PaymentCreate) -> Payment:
 @router.post("/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
 def create_payment(payment_data: PaymentCreate, db: DatabaseSession) -> Payment:
     payment = create_payment_record(db, payment_data)
+    mark_paid_reminders_for_invoice(db, _get_invoice_or_404(db, payment.invoice_id))
     db.commit()
     db.refresh(payment)
     return payment
@@ -84,6 +86,7 @@ def update_payment(payment_id: int, payment_data: PaymentUpdate, db: DatabaseSes
     _validate_payment_total(db, invoice, amount, exclude_payment_id=payment.id)
     for field, value in updates.items():
         setattr(payment, field, value)
+    mark_paid_reminders_for_invoice(db, invoice)
     db.commit()
     db.refresh(payment)
     return payment

@@ -22,6 +22,8 @@ def test_core_tables_can_be_created_in_sqlite_memory_db() -> None:
         "invoices",
         "invoice_items",
         "payments",
+        "reminder_settings",
+        "reminders",
     }
 
 
