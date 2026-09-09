@@ -8,7 +8,7 @@ Freitext-Eingaben werden strukturiert und anschließend mit realen Patienten, Le
 
 Rechnungen entstehen zunächst als bearbeitbare `DRAFT`s. Vor der Finalisierung müssen Patient, Leistungen/Produkte und KI-Prüfhinweise geklärt sein. Erst die Finalisierung vergibt eine dauerhafte Belegnummer und sperrt den Beleg gegen normale Änderungen.
 
-Das Backend ist bereits weit entwickelt. Ein benutzerfreundliches Web-Frontend ist noch nicht umgesetzt und gehört zu den nächsten großen Entwicklungsschritten.
+Das Backend ist bereits weit entwickelt. Das React-/Vite-Frontend stellt aktuell eine gemeinsame AppShell und ein Dashboard mit echten Backend-Kennzahlen bereit; weitere Fachbereiche folgen schrittweise.
 
 ## Projektstatus
 
@@ -40,7 +40,7 @@ Das Backend ist bereits weit entwickelt. Ein benutzerfreundliches Web-Frontend i
 | KI-Prüfhinweise | ✅ umgesetzt | Originaltext, ungeklärte Punkte und `ai_review_comment` können am DRAFT gespeichert werden. |
 | pytest und Regressionstests | ✅ umgesetzt | Unit- und API-Tests für Stammdaten, Rechnungen, Payments, PDFs, GiroCode, KI, Matching und Finalisierung. |
 | Monitoring | ◐ teilweise umgesetzt | KI-Stufen und Modellnamen werden geloggt; Input-/Output-Token werden erfasst. Kosten- und Latenzmessung fehlen noch. |
-| Web-Frontend | ⬜ offen | Derzeit steht die API inklusive Swagger UI im Vordergrund. |
+| Web-Frontend | ◐ teilweise umgesetzt | React, TypeScript und Vite mit AppShell, Routing, Theme-System und lokal anpassbarem Dashboard sind vorhanden. |
 | Zweite Text-Generation-API | ⬜ offen | Bisher wird nur die OpenAI API verwendet. |
 | Comparative Analysis | ⬜ offen | Vergleich mit einer zweiten API und systematische Auswertung stehen noch aus. |
 | Heimtag / Mehrfacheingabe | ⬜ offen | Noch kein eigener Workflow für die gebündelte Erfassung mehrerer Behandlungen. |

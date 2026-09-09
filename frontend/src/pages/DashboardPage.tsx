@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 
+import { DashboardCustomizationPanel } from "../dashboard/DashboardCustomizationPanel";
 import { DashboardWidget } from "../dashboard/DashboardWidget";
 import { getDashboardData, type DashboardData } from "../dashboard/dashboardData";
+import {
+  loadDashboardLayout,
+  resetDashboardLayout,
+  saveDashboardLayout,
+  type DashboardLayout,
+} from "../dashboard/dashboardLayout";
+import { dashboardWidgets, type DashboardWidgetId } from "../dashboard/dashboardWidgets";
 import "./DashboardPage.css";
 
 type DashboardState =
@@ -14,6 +22,8 @@ const initialState: DashboardState = { data: null, error: null, loading: true };
 export function DashboardPage() {
   const [state, setState] = useState<DashboardState>(initialState);
   const [requestVersion, setRequestVersion] = useState(0);
+  const [layout, setLayout] = useState<DashboardLayout>(loadDashboardLayout);
+  const [isCustomizationOpen, setIsCustomizationOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -58,20 +68,85 @@ export function DashboardPage() {
   }
 
   const { data } = state;
+  const visibleWidgetIds = layout.order.filter((widgetId) => layout.visibility[widgetId]);
+
+  const updateLayout = (nextLayout: DashboardLayout) => {
+    setLayout(nextLayout);
+    saveDashboardLayout(nextLayout);
+  };
+
+  const toggleWidgetVisibility = (widgetId: DashboardWidgetId) => {
+    if (layout.visibility[widgetId] && visibleWidgetIds.length === 1) {
+      return;
+    }
+
+    updateLayout({
+      ...layout,
+      visibility: {
+        ...layout.visibility,
+        [widgetId]: !layout.visibility[widgetId],
+      },
+    });
+  };
+
+  const moveWidget = (widgetId: DashboardWidgetId, direction: "up" | "down") => {
+    const currentIndex = layout.order.indexOf(widgetId);
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= layout.order.length) {
+      return;
+    }
+
+    const order = [...layout.order];
+    [order[currentIndex], order[targetIndex]] = [order[targetIndex], order[currentIndex]];
+    updateLayout({ ...layout, order });
+  };
+
+  const restoreDefaultLayout = () => {
+    updateLayout(resetDashboardLayout());
+  };
 
   return (
     <section className="dashboard-page" aria-labelledby="dashboard-overview-title">
       <div className="dashboard-page__intro">
-        <h2 id="dashboard-overview-title">Dashboard-Übersicht</h2>
-        <p>Aktueller Überblick über Patienten, Rechnungen und Mahnungen.</p>
+        <div>
+          <h2 id="dashboard-overview-title">Dashboard-Übersicht</h2>
+          <p>Aktueller Überblick über Patienten, Rechnungen und Mahnungen.</p>
+        </div>
+        <button
+          aria-controls="dashboard-customization"
+          aria-expanded={isCustomizationOpen}
+          className="dashboard-page__customize"
+          onClick={() => setIsCustomizationOpen((isOpen) => !isOpen)}
+          type="button"
+        >
+          Dashboard anpassen
+        </button>
       </div>
+      {isCustomizationOpen ? (
+        <div id="dashboard-customization">
+          <DashboardCustomizationPanel
+            layout={layout}
+            onClose={() => setIsCustomizationOpen(false)}
+            onMove={moveWidget}
+            onReset={restoreDefaultLayout}
+            onVisibilityChange={toggleWidgetVisibility}
+          />
+        </div>
+      ) : null}
       <div className="dashboard-page__grid">
-        <DashboardWidget description="Aktuell aktive Patienten" status="info" statusLabel="Aktuell" title="Aktive Patienten" value={data.activePatients} />
-        <DashboardWidget description="Noch nicht vollständig bezahlt" status="info" statusLabel="Offen" title="Offene Rechnungen" value={data.openInvoices} />
-        <DashboardWidget description="Fälligkeit bereits überschritten" status="danger" statusLabel="Überfällig" title="Überfällige Rechnungen" value={data.overdueInvoices} />
-        <DashboardWidget description="Noch nicht finalisierte Rechnungen" status="info" statusLabel="Entwurf" title="Rechnungsentwürfe" value={data.draftInvoices} />
-        <DashboardWidget description="Entwurf oder bereits versendet" status="warning" statusLabel="Offen" title="Offene Mahnungen" value={data.openReminders} />
-        <DashboardWidget description="Entwurf benötigt weitere Prüfung" status="warning" statusLabel="Prüfung" title="KI-Prüfung erforderlich" value={data.aiReviewRequired} />
+        {visibleWidgetIds.map((widgetId) => {
+          const widget = dashboardWidgets.find((item) => item.id === widgetId);
+          return widget === undefined ? null : (
+            <DashboardWidget
+              description={widget.description}
+              key={widget.id}
+              status={widget.status}
+              statusLabel={widget.statusLabel}
+              title={widget.title}
+              value={widget.value(data)}
+            />
+          );
+        })}
       </div>
     </section>
   );
