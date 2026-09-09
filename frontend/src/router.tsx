@@ -3,6 +3,9 @@ import { BrowserRouter, Outlet, Route, Routes, useLocation } from "react-router-
 import { AppShell } from "./layouts/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { PatientDetailPage } from "./pages/PatientDetailPage";
+import { PatientFormPage } from "./pages/PatientFormPage";
+import { PatientsPage } from "./pages/PatientsPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
 const pageTitles: Record<string, string> = {
@@ -19,7 +22,7 @@ const pageTitles: Record<string, string> = {
 
 function RoutedAppShell() {
   const { pathname } = useLocation();
-  const pageTitle = pageTitles[pathname] ?? "Seite nicht gefunden";
+  const pageTitle = pathname.startsWith("/patients/") ? "Patienten" : pageTitles[pathname] ?? "Seite nicht gefunden";
 
   return (
     <AppShell pageTitle={pageTitle}>
@@ -35,7 +38,12 @@ export function AppRouter() {
         <Route element={<RoutedAppShell />}>
           <Route index element={<DashboardPage />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="patients" element={<PlaceholderPage title="Patienten" />} />
+          <Route path="patients">
+            <Route index element={<PatientsPage />} />
+            <Route path="new" element={<PatientFormPage mode="create" />} />
+            <Route path=":patientId" element={<PatientDetailPage />} />
+            <Route path=":patientId/edit" element={<PatientFormPage mode="edit" />} />
+          </Route>
           <Route path="invoices" element={<PlaceholderPage title="Rechnungen" />} />
           <Route path="payments" element={<PlaceholderPage title="Zahlungen" />} />
           <Route path="reminders" element={<PlaceholderPage title="Mahnwesen" />} />

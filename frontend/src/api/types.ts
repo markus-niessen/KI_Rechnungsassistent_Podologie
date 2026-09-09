@@ -24,6 +24,37 @@ export type Patient = {
   updated_at: IsoDateTime;
 };
 
+export type PatientInput = {
+  first_name: string;
+  last_name: string;
+  birth_date: IsoDate | null;
+  deceased: boolean;
+  death_date: IsoDate | null;
+  street: string | null;
+  zip: string | null;
+  city: string | null;
+  invoice_name: string | null;
+  invoice_street: string | null;
+  invoice_zip: string | null;
+  invoice_city: string | null;
+  home_name: string | null;
+  room: string | null;
+};
+
+export type PatientInvoice = {
+  id: number;
+  invoice_number: string | null;
+  document_type: string;
+  status: string;
+  invoice_date: IsoDate;
+  due_date: IsoDate;
+  subtotal: Money;
+  tax_total: Money;
+  total: Money;
+  item_count: number;
+  pdf_available: boolean;
+};
+
 export type Invoice = {
   id: number;
   company_id: number;

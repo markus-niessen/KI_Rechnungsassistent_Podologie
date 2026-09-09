@@ -1,5 +1,11 @@
 export type QueryParameters = Record<string, boolean | number | string | null | undefined>;
 
+type ApiRequestOptions = {
+  body?: unknown;
+  method?: "GET" | "PATCH" | "POST";
+  query?: QueryParameters;
+};
+
 export class ApiError extends Error {
   readonly detail: unknown;
   readonly status: number;
@@ -25,11 +31,14 @@ function buildUrl(path: string, query?: QueryParameters): string {
   return queryString ? `${path}?${queryString}` : path;
 }
 
-export async function apiGet<T>(path: string, query?: QueryParameters): Promise<T | undefined> {
-  const response = await fetch(buildUrl(path, query), {
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T | undefined> {
+  const response = await fetch(buildUrl(path, options.query), {
+    ...(options.method === undefined || options.method === "GET" ? {} : { method: options.method }),
     headers: {
       Accept: "application/json",
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
     },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   });
 
   if (response.status === 204) {
@@ -45,4 +54,8 @@ export async function apiGet<T>(path: string, query?: QueryParameters): Promise<
   }
 
   return payload as T;
+}
+
+export async function apiGet<T>(path: string, query?: QueryParameters): Promise<T | undefined> {
+  return apiRequest<T>(path, { query });
 }

@@ -14,6 +14,16 @@ vi.mock("./dashboard/dashboardData", () => ({
   }),
 }));
 
+vi.mock("./api/patients", () => ({
+  getPatients: vi.fn().mockResolvedValue([]),
+  activatePatient: vi.fn(),
+  deactivatePatient: vi.fn(),
+  getPatient: vi.fn(),
+  getPatientInvoices: vi.fn(),
+  createPatient: vi.fn(),
+  updatePatient: vi.fn(),
+}));
+
 function renderAt(path: string) {
   window.history.pushState({}, "", path);
   return render(<App />);

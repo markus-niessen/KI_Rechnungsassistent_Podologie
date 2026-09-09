@@ -63,7 +63,7 @@ export function Sidebar({ isOpen, onNavigate, sidebarRef }: SidebarProps) {
               className={({ isActive }) =>
                 isActive || isDashboardAtRoot ? "app-sidebar__link app-sidebar__link--active" : "app-sidebar__link"
               }
-              end
+              end={item.id === "dashboard"}
               key={item.id}
               onClick={onNavigate}
               to={item.path}
