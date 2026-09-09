@@ -9,12 +9,28 @@
   --color-primary: #126de0;
   --color-primary-hover: #095cbf;
   --color-primary-text: #ffffff;
+  --color-focus-ring: #79b6ff;
+  --color-overlay: rgb(12 29 51 / 52%);
   --color-sidebar: #102f4d;
   --color-sidebar-text: #e9f1fb;
+  --color-sidebar-text-muted: #b8c9dc;
+  --color-sidebar-hover: #1c4268;
+  --color-sidebar-active: #e1efff;
+  --color-sidebar-active-text: #0c4d96;
   --color-status-success: #0b8f65;
   --color-status-warning: #be7000;
   --color-status-danger: #c83232;
   --color-status-info: #1769c2;
+  --radius-small: 0.375rem;
+  --radius-medium: 0.625rem;
+  --radius-large: 0.875rem;
+  --shadow-card: 0 0.75rem 2rem rgb(23 35 61 / 8%);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
   font-family: Arial, sans-serif;
 }
 
@@ -29,8 +45,14 @@
   --color-primary: #5fa9ff;
   --color-primary-hover: #8bc3ff;
   --color-primary-text: #0d1b2d;
+  --color-focus-ring: #9bc9ff;
+  --color-overlay: rgb(0 0 0 / 64%);
   --color-sidebar: #0b1f33;
   --color-sidebar-text: #e6eef9;
+  --color-sidebar-text-muted: #b8c9dc;
+  --color-sidebar-hover: #173956;
+  --color-sidebar-active: #244f79;
+  --color-sidebar-active-text: #ffffff;
   --color-status-success: #48c99a;
   --color-status-warning: #f4af3d;
   --color-status-danger: #ff7373;
@@ -47,17 +69,14 @@ body {
   color: var(--color-text);
 }
 
-main {
-  margin: 0 auto;
-  max-width: 60rem;
-  padding: 3rem 1.5rem;
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
+button,
+input,
 select {
-  margin-left: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.25rem;
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0.4rem 0.6rem;
+  font: inherit;
 }
