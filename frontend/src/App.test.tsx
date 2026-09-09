@@ -3,15 +3,64 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
 
+function renderAt(path: string) {
+  window.history.pushState({}, "", path);
+  return render(<App />);
+}
+
 describe("App", () => {
   it("renders the frontend workspace", () => {
-    render(<App />);
+    renderAt("/");
 
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
+  it("renders the dashboard at both dashboard routes", () => {
+    const { unmount } = renderAt("/");
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    unmount();
+
+    renderAt("/dashboard");
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+  });
+
+  it("renders each planned main area and marks the matching navigation item active", () => {
+    const routes = [
+      ["/patients", "Patienten"],
+      ["/invoices", "Rechnungen"],
+      ["/payments", "Zahlungen"],
+      ["/reminders", "Mahnwesen"],
+      ["/services", "Leistungen / Produkte"],
+      ["/business-profiles", "Betriebe / Standorte"],
+      ["/settings", "Einstellungen"],
+    ];
+
+    for (const [path, label] of routes) {
+      const { unmount } = renderAt(path);
+      expect(screen.getByRole("heading", { level: 1, name: label })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
+      unmount();
+    }
+  });
+
+  it("shows a 404 page for an unknown route", () => {
+    renderAt("/unbekannt");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Seite nicht gefunden" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Heimtag" })).not.toBeInTheDocument();
+  });
+
+  it("navigates to a main area through the sidebar", () => {
+    renderAt("/dashboard");
+
+    fireEvent.click(screen.getByRole("link", { name: "Patienten" }));
+
+    expect(screen.getByRole("heading", { level: 1, name: "Patienten" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Patienten" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("opens and closes the navigation drawer from the header", () => {
-    render(<App />);
+    renderAt("/dashboard");
 
     const menuButton = screen.getByRole("button", { name: "Navigation öffnen" });
     fireEvent.click(menuButton);
@@ -26,7 +75,7 @@ describe("App", () => {
   });
 
   it("closes the navigation drawer with the overlay and Escape", () => {
-    render(<App />);
+    renderAt("/dashboard");
 
     const menuButton = screen.getByRole("button", { name: "Navigation öffnen" });
     fireEvent.click(menuButton);

@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 
 export type NavigationItemId =
   | "dashboard"
@@ -13,27 +14,29 @@ export type NavigationItemId =
 type NavigationItem = {
   id: NavigationItemId;
   label: string;
+  path: string;
 };
 
 const navigationItems: NavigationItem[] = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "patients", label: "Patienten" },
-  { id: "invoices", label: "Rechnungen" },
-  { id: "payments", label: "Zahlungen" },
-  { id: "reminders", label: "Mahnwesen" },
-  { id: "services", label: "Leistungen / Produkte" },
-  { id: "business-profiles", label: "Betriebe / Standorte" },
-  { id: "settings", label: "Einstellungen" },
+  { id: "dashboard", label: "Dashboard", path: "/dashboard" },
+  { id: "patients", label: "Patienten", path: "/patients" },
+  { id: "invoices", label: "Rechnungen", path: "/invoices" },
+  { id: "payments", label: "Zahlungen", path: "/payments" },
+  { id: "reminders", label: "Mahnwesen", path: "/reminders" },
+  { id: "services", label: "Leistungen / Produkte", path: "/services" },
+  { id: "business-profiles", label: "Betriebe / Standorte", path: "/business-profiles" },
+  { id: "settings", label: "Einstellungen", path: "/settings" },
 ];
 
 type SidebarProps = {
-  activeItemId: NavigationItemId;
   isOpen: boolean;
   onNavigate: () => void;
   sidebarRef: RefObject<HTMLElement | null>;
 };
 
-export function Sidebar({ activeItemId, isOpen, onNavigate, sidebarRef }: SidebarProps) {
+export function Sidebar({ isOpen, onNavigate, sidebarRef }: SidebarProps) {
+  const { pathname } = useLocation();
+
   return (
     <aside
       aria-label="Hauptnavigation"
@@ -54,17 +57,19 @@ export function Sidebar({ activeItemId, isOpen, onNavigate, sidebarRef }: Sideba
 
       <nav aria-label="Hauptnavigation" className="app-sidebar__navigation">
         {navigationItems.map((item) => {
-          const isActive = item.id === activeItemId;
+          const isDashboardAtRoot = item.id === "dashboard" && pathname === "/";
           return (
-            <a
-              aria-current={isActive ? "page" : undefined}
-              className={isActive ? "app-sidebar__link app-sidebar__link--active" : "app-sidebar__link"}
-              href={`#${item.id}`}
+            <NavLink
+              className={({ isActive }) =>
+                isActive || isDashboardAtRoot ? "app-sidebar__link app-sidebar__link--active" : "app-sidebar__link"
+              }
+              end
               key={item.id}
               onClick={onNavigate}
+              to={item.path}
             >
               {item.label}
-            </a>
+            </NavLink>
           );
         })}
       </nav>

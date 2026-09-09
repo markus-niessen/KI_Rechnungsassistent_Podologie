@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Header } from "../components/header/Header";
-import { type NavigationItemId, Sidebar } from "../components/navigation/Sidebar";
+import { Sidebar } from "../components/navigation/Sidebar";
 import "./AppShell.css";
 
 type AppShellProps = {
-  activeItemId: NavigationItemId;
   children: ReactNode;
   pageTitle: string;
 };
 
-export function AppShell({ activeItemId, children, pageTitle }: AppShellProps) {
+export function AppShell({ children, pageTitle }: AppShellProps) {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -43,7 +42,6 @@ export function AppShell({ activeItemId, children, pageTitle }: AppShellProps) {
   return (
     <div className="app-shell">
       <Sidebar
-        activeItemId={activeItemId}
         isOpen={isNavigationOpen}
         onNavigate={() => closeNavigation(false)}
         sidebarRef={sidebarRef}
