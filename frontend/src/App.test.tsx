@@ -1,7 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+
+vi.mock("./dashboard/dashboardData", () => ({
+  getDashboardData: vi.fn().mockResolvedValue({
+    activePatients: 0,
+    openInvoices: 0,
+    overdueInvoices: 0,
+    draftInvoices: 0,
+    openReminders: 0,
+    aiReviewRequired: 0,
+  }),
+}));
 
 function renderAt(path: string) {
   window.history.pushState({}, "", path);

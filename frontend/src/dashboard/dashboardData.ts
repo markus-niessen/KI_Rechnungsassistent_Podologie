@@ -41,6 +41,7 @@ export async function getDashboardData(today = new Date()): Promise<DashboardDat
     overdueInvoices: invoices.filter((invoice) => isOverdue(invoice, today)).length,
     draftInvoices: invoices.filter((invoice) => invoice.status === "DRAFT").length,
     openReminders: reminders.filter(isOpenReminder).length,
+    // TODO: Define when a manually edited AI draft is considered reviewed; this may require a dedicated review status.
     aiReviewRequired: invoices.filter((invoice) => invoice.ai_review_comment !== null).length,
   };
 }
