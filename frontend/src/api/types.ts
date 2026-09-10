@@ -1,6 +1,7 @@
 export type IsoDate = string;
 export type IsoDateTime = string;
 export type Money = string;
+export type ServiceType = "SERVICE" | "ADDITIONAL_SERVICE" | "PRODUCT";
 
 export type Patient = {
   id: number;
@@ -99,11 +100,20 @@ export type Reminder = {
 export type Service = {
   id: number;
   name: string;
+  service_type: ServiceType;
   description: string | null;
   net_price: Money;
   vat_rate: Money;
   active: boolean;
   created_at: IsoDateTime;
+};
+
+export type ServiceInput = {
+  name: string;
+  service_type: ServiceType;
+  description: string | null;
+  net_price: Money;
+  vat_rate: Money;
 };
 
 export type BusinessProfile = {
@@ -127,4 +137,22 @@ export type BusinessProfile = {
   active: boolean;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+};
+
+export type BusinessProfileInput = {
+  business_name: string;
+  location_name: string;
+  location_code: string | null;
+  street: string;
+  postal_code: string;
+  city: string;
+  phone: string | null;
+  email: string | null;
+  tax_number: string | null;
+  vat_id: string | null;
+  ik_number: string | null;
+  iban: string;
+  bic: string | null;
+  bank_name: string | null;
+  logo_path: string | null;
 };

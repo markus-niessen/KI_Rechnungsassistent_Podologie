@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.db.base import Base
@@ -13,6 +14,7 @@ from app.routes.ai import router as ai_router
 from app.routes.reminders import router as reminders_router
 
 app = FastAPI(title=get_settings().app_name)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 Base.metadata.create_all(bind=engine)
 app.include_router(patients_router)

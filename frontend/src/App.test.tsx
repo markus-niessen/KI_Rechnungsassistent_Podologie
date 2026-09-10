@@ -24,6 +24,15 @@ vi.mock("./api/patients", () => ({
   updatePatient: vi.fn(),
 }));
 
+vi.mock("./api/services", () => ({
+  getServices: vi.fn().mockResolvedValue([]),
+  getService: vi.fn(),
+  createService: vi.fn(),
+  updateService: vi.fn(),
+  activateService: vi.fn(),
+  deactivateService: vi.fn(),
+}));
+
 function renderAt(path: string) {
   window.history.pushState({}, "", path);
   return render(<App />);
@@ -78,6 +87,15 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Patienten" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Patienten" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("navigates to services through the sidebar", () => {
+    renderAt("/dashboard");
+
+    fireEvent.click(screen.getByRole("link", { name: "Leistungen / Produkte" }));
+
+    expect(screen.getByRole("heading", { level: 1, name: "Leistungen / Produkte" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Leistungen / Produkte" })).toHaveAttribute("aria-current", "page");
   });
 
   it("opens and closes the navigation drawer from the header", () => {

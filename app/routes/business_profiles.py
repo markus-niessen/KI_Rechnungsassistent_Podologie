@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -14,6 +15,9 @@ from app.schemas.business_profile import BusinessProfileCreate, BusinessProfileR
 
 router = APIRouter(prefix="/business-profiles", tags=["business-profiles"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
+LOGO_DIRECTORY = Path("app/static/images/business_profiles")
+MAX_LOGO_BYTES = 5 * 1024 * 1024
+ALLOWED_LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 
 def _get_business_profile_or_404(db: Session, business_profile_id: int) -> BusinessProfile:
@@ -81,7 +85,18 @@ def list_business_profiles(
                 BusinessProfile.business_name.ilike(pattern),
                 BusinessProfile.location_name.ilike(pattern),
                 BusinessProfile.location_code.ilike(pattern),
+                BusinessProfile.invoice_prefix.ilike(pattern),
+                BusinessProfile.street.ilike(pattern),
+                BusinessProfile.postal_code.ilike(pattern),
                 BusinessProfile.city.ilike(pattern),
+                BusinessProfile.phone.ilike(pattern),
+                BusinessProfile.email.ilike(pattern),
+                BusinessProfile.tax_number.ilike(pattern),
+                BusinessProfile.vat_id.ilike(pattern),
+                BusinessProfile.ik_number.ilike(pattern),
+                BusinessProfile.iban.ilike(pattern),
+                BusinessProfile.bic.ilike(pattern),
+                BusinessProfile.bank_name.ilike(pattern),
             )
         )
     return list(db.scalars(statement))
@@ -90,6 +105,39 @@ def list_business_profiles(
 @router.get("/{business_profile_id}", response_model=BusinessProfileRead)
 def get_business_profile(business_profile_id: int, db: DatabaseSession) -> BusinessProfile:
     return _get_business_profile_or_404(db, business_profile_id)
+
+
+@router.post("/{business_profile_id}/logo", response_model=BusinessProfileRead)
+async def upload_business_profile_logo(
+    business_profile_id: int, logo: Annotated[UploadFile, File()], db: DatabaseSession
+) -> BusinessProfile:
+    profile = _get_business_profile_or_404(db, business_profile_id)
+    extension = ALLOWED_LOGO_TYPES.get(logo.content_type or "")
+    if extension is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Logo must be PNG, JPEG or WebP")
+    content = await logo.read(MAX_LOGO_BYTES + 1)
+    if len(content) > MAX_LOGO_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 5 MB")
+    directory = LOGO_DIRECTORY / str(profile.id)
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = f"logo.{extension}"
+    (directory / filename).write_bytes(content)
+    profile.logo_path = f"/static/images/business_profiles/{profile.id}/{filename}"
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.delete("/{business_profile_id}/logo", response_model=BusinessProfileRead)
+def remove_business_profile_logo(business_profile_id: int, db: DatabaseSession) -> BusinessProfile:
+    profile = _get_business_profile_or_404(db, business_profile_id)
+    directory = LOGO_DIRECTORY / str(profile.id)
+    for logo_file in directory.glob("logo.*") if directory.exists() else []:
+        logo_file.unlink()
+    profile.logo_path = None
+    db.commit()
+    db.refresh(profile)
+    return profile
 
 
 @router.patch("/{business_profile_id}", response_model=BusinessProfileRead)

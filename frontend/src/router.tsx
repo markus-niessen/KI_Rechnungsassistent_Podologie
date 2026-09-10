@@ -7,6 +7,12 @@ import { PatientDetailPage } from "./pages/PatientDetailPage";
 import { PatientFormPage } from "./pages/PatientFormPage";
 import { PatientsPage } from "./pages/PatientsPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { BusinessProfileDetailPage } from "./pages/BusinessProfileDetailPage";
+import { BusinessProfileFormPage } from "./pages/BusinessProfileFormPage";
+import { BusinessProfilesPage } from "./pages/BusinessProfilesPage";
+import { ServiceDetailPage } from "./pages/ServiceDetailPage";
+import { ServiceFormPage } from "./pages/ServiceFormPage";
+import { ServicesPage } from "./pages/ServicesPage";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -22,7 +28,7 @@ const pageTitles: Record<string, string> = {
 
 function RoutedAppShell() {
   const { pathname } = useLocation();
-  const pageTitle = pathname.startsWith("/patients/") ? "Patienten" : pageTitles[pathname] ?? "Seite nicht gefunden";
+  const pageTitle = pathname.startsWith("/patients/") ? "Patienten" : pathname.startsWith("/services/") ? "Leistungen / Produkte" : pathname.startsWith("/business-profiles/") ? "Betriebe / Standorte" : pageTitles[pathname] ?? "Seite nicht gefunden";
 
   return (
     <AppShell pageTitle={pageTitle}>
@@ -47,8 +53,18 @@ export function AppRouter() {
           <Route path="invoices" element={<PlaceholderPage title="Rechnungen" />} />
           <Route path="payments" element={<PlaceholderPage title="Zahlungen" />} />
           <Route path="reminders" element={<PlaceholderPage title="Mahnwesen" />} />
-          <Route path="services" element={<PlaceholderPage title="Leistungen / Produkte" />} />
-          <Route path="business-profiles" element={<PlaceholderPage title="Betriebe / Standorte" />} />
+          <Route path="services">
+            <Route index element={<ServicesPage />} />
+            <Route path="new" element={<ServiceFormPage mode="create" />} />
+            <Route path=":serviceId" element={<ServiceDetailPage />} />
+            <Route path=":serviceId/edit" element={<ServiceFormPage mode="edit" />} />
+          </Route>
+          <Route path="business-profiles">
+            <Route index element={<BusinessProfilesPage />} />
+            <Route path="new" element={<BusinessProfileFormPage mode="create" />} />
+            <Route path=":profileId" element={<BusinessProfileDetailPage />} />
+            <Route path=":profileId/edit" element={<BusinessProfileFormPage mode="edit" />} />
+          </Route>
           <Route path="settings" element={<PlaceholderPage title="Einstellungen" />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
