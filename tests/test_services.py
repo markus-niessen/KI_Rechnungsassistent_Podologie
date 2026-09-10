@@ -62,6 +62,23 @@ def test_service_can_be_created_with_decimal_prices(client: TestClient) -> None:
     assert schema.vat_rate == Decimal("19.00")
 
 
+def test_service_type_is_stored_and_can_be_filtered(client: TestClient) -> None:
+    product = client.post(
+        "/services",
+        json={"name": "Pflegegel", "service_type": "PRODUCT", "net_price": "5.00", "vat_rate": "19.00"},
+    )
+    client.post(
+        "/services",
+        json={"name": "Mehrarbeit", "service_type": "ADDITIONAL_SERVICE", "net_price": "5.00", "vat_rate": "19.00"},
+    )
+
+    response = client.get("/services", params={"service_type": "PRODUCT"})
+
+    assert product.status_code == 201
+    assert product.json()["service_type"] == "PRODUCT"
+    assert [service["name"] for service in response.json()] == ["Pflegegel"]
+
+
 def test_list_shows_active_services_and_searches_case_insensitively(client: TestClient) -> None:
     matching_service = create_service(client, "Fußpflege klein")
     create_service(client, "Mehrarbeit")

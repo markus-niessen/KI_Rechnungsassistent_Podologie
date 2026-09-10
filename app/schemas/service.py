@@ -1,11 +1,17 @@
 from datetime import datetime
 from decimal import Decimal
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+ServiceType = Literal["SERVICE", "ADDITIONAL_SERVICE", "PRODUCT"]
 
 
 class ServiceCreate(BaseModel):
     name: str
+    service_type: ServiceType = "SERVICE"
     description: str | None = None
     net_price: Decimal = Field(ge=Decimal("0"))
     vat_rate: Decimal = Field(ge=Decimal("0"))
@@ -23,6 +29,7 @@ class ServiceCreate(BaseModel):
 
 class ServiceUpdate(BaseModel):
     name: str | None = None
+    service_type: ServiceType | None = None
     description: str | None = None
     net_price: Decimal | None = Field(default=None, ge=Decimal("0"))
     vat_rate: Decimal | None = Field(default=None, ge=Decimal("0"))
@@ -43,6 +50,7 @@ class ServiceUpdate(BaseModel):
 class ServiceRead(BaseModel):
     id: int
     name: str
+    service_type: ServiceType
     description: str | None
     net_price: Decimal
     vat_rate: Decimal

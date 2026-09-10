@@ -34,6 +34,7 @@ def list_services(
     db: DatabaseSession,
     include_inactive: bool = False,
     search: Annotated[str | None, Query()] = None,
+    service_type: Annotated[str | None, Query()] = None,
 ) -> list[Service]:
     statement = select(Service).order_by(Service.id)
     if not include_inactive:
@@ -41,6 +42,8 @@ def list_services(
     if search:
         pattern = f"%{search}%"
         statement = statement.where(or_(Service.name.ilike(pattern), Service.description.ilike(pattern)))
+    if service_type:
+        statement = statement.where(Service.service_type == service_type)
     return list(db.scalars(statement))
 
 
